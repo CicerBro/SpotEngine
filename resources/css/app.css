@@ -15,8 +15,21 @@
     --badge-bitmap: #64748b;
 }
 
+body {
+    font-family:
+        BlinkMacSystemFont,
+        -apple-system,
+        "Segoe UI",
+        Roboto,
+        Helvetica,
+        Arial,
+        sans-serif;
+}
+
 /* Hide Alpine x-cloak elements until Alpine initialises */
-[x-cloak] { display: none !important; }
+[x-cloak] {
+    display: none !important;
+}
 
 /* Spot image preview tooltip — delay via animation so no JS timer needed */
 @keyframes spot-preview-in {

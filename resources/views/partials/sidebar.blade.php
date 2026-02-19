@@ -23,14 +23,14 @@ $sidebarTree = $categoryTree ?? [];
 </div>
 
 {{-- Sidebar panel --}}
-<aside class="fixed top-[52px] left-0 z-40 flex h-[calc(100vh-52px)] w-64 flex-col border-r border-gray-200 bg-white overflow-y-auto
+<aside class="fixed top-[52px] left-0 z-40 flex h-[calc(100vh-52px)] w-64 min-h-0 flex-col border-r border-gray-200 bg-white
               transition-transform duration-200 ease-in-out
               lg:translate-x-0 -translate-x-full"
        :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'">
 
-    {{-- FILTERS --}}
+    {{-- FILTERS (scrollable) --}}
     @if(!empty($sidebarTree))
-    <div class="py-4 flex-1">
+    <div class="min-h-0 flex-1 overflow-y-auto py-4">
         <div class="flex items-center justify-between px-5 mb-2">
             <p class="text-xs font-semibold text-gray-400 tracking-wider uppercase">Filters</p>
             @if(request()->hasAny(['cat', 'subcat', 'q']))
@@ -85,7 +85,7 @@ $sidebarTree = $categoryTree ?? [];
                             ]);
                         @endphp
                         <a href="{{ $filterUrl }}"
-                           class="flex items-center pl-7 pr-3 py-[3px] text-[12px] transition-colors
+                           class="flex items-center pl-7 pr-3 py-[3px] text-sm transition-colors
                                   {{ $isActive
                                       ? 'text-blue-700 font-medium bg-blue-50'
                                       : 'text-gray-500 hover:text-gray-900 hover:bg-gray-50' }}">
@@ -103,14 +103,14 @@ $sidebarTree = $categoryTree ?? [];
     </div>
     @endif
 
-    {{-- Last retrieval + USER + LOGOUT --}}
-    <div class="border-t border-gray-200 py-3 px-3 shrink-0">
+    {{-- Last retrieval + USER + LOGOUT (always visible at bottom) --}}
+    <div class="mt-auto shrink-0 border-t border-gray-200 py-3 px-3">
         @auth
             @php
                 $usenetState = \App\Models\UsenetState::orderBy('last_retrieval_at', 'desc')->first();
             @endphp
             @if($usenetState?->last_retrieval_at)
-                <p class="px-2 mb-2 text-xs text-gray-400">
+                <p class="px-2 mb-2 text-sm text-gray-400">
                     Last update: {{ $usenetState->last_retrieval_at->diffForHumans() }}
                 </p>
             @endif
