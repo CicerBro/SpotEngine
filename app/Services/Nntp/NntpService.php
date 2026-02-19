@@ -20,9 +20,9 @@ class NntpService
     {
         $numConnections = $connections ?? $this->config['connections'];
 
-        return match ($this->config['driver'] ?? 'parallel-pipelined') {
-            'parallel-pipelined' => new ParallelPipelinedNntp($this->config, $numConnections, 6),
-            'parallel' => new ParallelNntp($this->config, $numConnections),
+        return match ($this->config['driver'] ?? 'parallel') {
+            'parallel' => new ParallelNntpDriver($this->config, $numConnections),
+            'single' => SingleNntpDriver::fromConfig($this->config),
             default => throw new \InvalidArgumentException("Unknown NNTP driver: {$this->config['driver']}"),
         };
     }
@@ -30,9 +30,9 @@ class NntpService
     /**
      * Create a single-connection NNTP client for serial operations (BODY, NZB retrieval).
      */
-    public function makeClient(): NntpClient
+    public function makeClient(): SingleNntpDriver
     {
-        return NntpClient::fromConfig($this->config);
+        return SingleNntpDriver::fromConfig($this->config);
     }
 
     /** @return array<string, mixed> */

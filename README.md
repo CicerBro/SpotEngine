@@ -16,7 +16,7 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 - **Newznab-compatible API**: Can be used with tools like Sonarr, Radarr, and similar automation software.
 - **Extensible search**: `SearchDriver` contract with a `DatabaseSearchDriver` (uses PostgreSQL FTS) and a `ManticoreSearchDriver` stub. Currently Manticore is a work in progress.
 - **Redis caching**: categories cached in Redis, NZB/image files cached to disk with a configurable pruning schedule
-- **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval, XHDR batch fetching and graceful fallback to parallel (pipelined) HEAD requests
+- **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval. Initial full Spot retrieval can be done in under 5 minutes on an Apple M1 Pro.
 - **Spot retrieval**: This is currently being done new to old. So new spots will be indexed first and then it'll work backwards. Can be changed in config.
 
 ## Requirements
@@ -40,9 +40,9 @@ This installs dependencies, generates an application key, runs migrations, and b
 
 1. **Configure `.env`** — Copy `.env.example` to `.env` and fill in your database, Redis, and NNTP settings (see [Configuration](#configuration)).
 2. **Run migrations and seed**:
-   ```bash
-   php artisan migrate:fresh --seed
-   ```
+    ```bash
+    php artisan migrate:fresh --seed
+    ```
 3. **Default login** — Use **admin** / **changeme123** to sign in.
 
 Then start the stack:

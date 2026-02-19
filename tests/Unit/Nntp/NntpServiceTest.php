@@ -2,12 +2,11 @@
 
 declare(strict_types=1);
 
-use App\Services\Nntp\NntpClient;
 use App\Services\Nntp\NntpService;
-use App\Services\Nntp\ParallelNntp;
-use App\Services\Nntp\ParallelPipelinedNntp;
+use App\Services\Nntp\ParallelNntpDriver;
+use App\Services\Nntp\SingleNntpDriver;
 
-function nntpConfig(string $driver = 'parallel-pipelined'): array
+function nntpConfig(string $driver = 'parallel'): array
 {
     return [
         'driver' => $driver,
@@ -22,16 +21,16 @@ function nntpConfig(string $driver = 'parallel-pipelined'): array
     ];
 }
 
-test('makeDriver returns ParallelPipelinedNntp by default', function () {
+test('makeDriver returns ParallelNntpDriver for parallel driver by default', function () {
     $service = new NntpService(nntpConfig());
 
-    expect($service->makeDriver())->toBeInstanceOf(ParallelPipelinedNntp::class);
+    expect($service->makeDriver())->toBeInstanceOf(ParallelNntpDriver::class);
 });
 
-test('makeDriver returns ParallelNntp for parallel driver', function () {
-    $service = new NntpService(nntpConfig('parallel'));
+test('makeDriver returns SingleNntpDriver for single driver', function () {
+    $service = new NntpService(nntpConfig('single'));
 
-    expect($service->makeDriver())->toBeInstanceOf(ParallelNntp::class);
+    expect($service->makeDriver())->toBeInstanceOf(SingleNntpDriver::class);
 });
 
 test('makeDriver throws on unknown driver', function () {
@@ -48,10 +47,10 @@ test('makeDriver respects connection count override', function () {
     expect($driver->getConnectionCount())->toBe(0);
 });
 
-test('makeClient returns NntpClient instance', function () {
+test('makeClient returns SingleNntpDriver instance', function () {
     $service = new NntpService(nntpConfig());
 
-    expect($service->makeClient())->toBeInstanceOf(NntpClient::class);
+    expect($service->makeClient())->toBeInstanceOf(SingleNntpDriver::class);
 });
 
 test('getConfig returns the config array', function () {

@@ -9,7 +9,6 @@ use App\Models\UsenetState;
 use App\Services\Nntp\Contracts\NntpDriverInterface;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SpotParser;
-use Illuminate\Support\Facades\Log;
 
 class SpotRetrieverService
 {
@@ -96,7 +95,7 @@ class SpotRetrieverService
         $forwardNewToOld = config('spotengine.retrieval.forward_new_to_old', false);
         $batches = $this->buildBatches($startArticle, $endArticle, $batchSize, $backfill, $forwardNewToOld);
 
-        $saveStateOnlyAfterLastBatch = ! $backfill && $forwardNewToOld;
+        $saveStateOnlyAfterLastBatch = false;
 
         [
             'totalProcessed' => $totalProcessed,
@@ -201,37 +200,18 @@ class SpotRetrieverService
     /** @return array{int, list<array<string, mixed>>, int} [processed, spots, lastArticle] */
     protected function fetchBatch(int $batchStart, int $batchEnd): array
     {
-        try {
-            $articles = $this->nntp->xover($batchStart, $batchEnd);
-        } catch (\Throwable $e) {
-            Log::error("XOVER failed for $batchStart-$batchEnd: ".$e->getMessage());
-
-            return [0, [], $batchEnd];
-        }
-
-        if ($articles === []) {
-            return [0, [], $batchEnd];
-        }
-
+        $overview = $this->nntp->xover($batchStart, $batchEnd);
         $spots = [];
 
-        $this->nntp->headParallel(
-            array_keys($articles),
-            true,
-            function (?array $headers) use (&$spots): void {
-                if ($headers === null || ! isset($headers['x-xml'])) {
-                    return;
-                }
+        foreach ($overview as $headers) {
+            $spot = $this->parser->parseFromOverview($headers);
 
-                $spot = $this->parser->parseFromHeaders($headers);
-
-                if ($spot) {
-                    $spots[] = $spot;
-                }
+            if ($spot !== null) {
+                $spots[] = $spot;
             }
-        );
+        }
 
-        return [\count($articles), $spots, $batchEnd];
+        return [\count($overview), $spots, $batchEnd];
     }
 
     /** @param list<array<string, mixed>> $spots */
@@ -306,10 +286,13 @@ class SpotRetrieverService
             ]);
         }
 
+        // Only update the fields available from XOVER. X-XML fields (description,
+        // nzb_segments, image_segment, website) are preserved if already populated
+        // from a prior HEAD fetch.
         return Spot::upsert(
             $rows,
             ['message_id'],
-            ['title', 'description', 'subcategories', 'nzb_segments', 'file_size', 'image_segment', 'updated_at']
+            ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'xml_signature', 'updated_at']
         );
     }
 

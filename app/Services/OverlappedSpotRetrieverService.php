@@ -73,6 +73,14 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
             [$processed, $spots, $lastInBatch] = $this->fetchBatch($batchStart, $batchEnd);
             $parsed = \count($spots);
 
+            // SIGINT may have fired during fetchBatch (async signals). If shutdown was
+            // triggered while headParallel was running, $this->nntp is now null.
+            // Do not fork a new child in that case — just drain the previous one.
+            // @phpstan-ignore if.alwaysFalse
+            if ($this->shuttingDown) {
+                break;
+            }
+
             // Wait for the previous child before forking a new one.
             if ($prevChildPid !== null) {
                 pcntl_waitpid($prevChildPid, $childStatus);
@@ -100,7 +108,14 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
             }
 
             if ($pid === 0) {
-                // Child: detach NNTP sockets so our exit does not QUIT the parent's
+                // Child: reset signal handlers so SIGINT/SIGTERM don't call shutdown()
+                // and null out $this->nntp before we can detach().
+                if (\function_exists('pcntl_signal')) {
+                    pcntl_signal(SIGINT, SIG_DFL);
+                    pcntl_signal(SIGTERM, SIG_DFL);
+                }
+
+                // Detach NNTP sockets so our exit does not QUIT the parent's
                 // connections, then reconnect the DB to get a clean connection.
                 fclose($readPipe);
                 $this->nntp->detach();
