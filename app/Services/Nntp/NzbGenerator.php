@@ -11,7 +11,7 @@ namespace App\Services\Nntp;
  */
 class NzbGenerator
 {
-    public function __construct(private readonly NntpClient $nntp) {}
+    public function __construct(private readonly SingleNntpDriver $nntp) {}
 
     /**
      * Fetch and decode NZB from Usenet

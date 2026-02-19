@@ -11,7 +11,7 @@ interface NntpDriverInterface
     /** @return array{count: int, first: int, last: int, group: string} */
     public function group(string $groupName): array;
 
-    /** @return array<int, true> */
+    /** @return array<int, array{subject: string, from: string, date: string, message_id: string}> */
     public function xover(int $start, int $end): array;
 
     /**

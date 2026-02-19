@@ -14,7 +14,7 @@ return [
     | groups.nzb: NZB segment article bodies, e.g. alt.binaries.ftd
     */
     'nntp' => [
-        'driver' => env('NNTP_DRIVER', 'parallel-pipelined'),
+        'driver' => env('NNTP_DRIVER', 'parallel'),
         'host' => env('NNTP_HOST', ''),
         'port' => (int) env('NNTP_PORT', 563),
         'ssl' => (bool) env('NNTP_SSL', true),
