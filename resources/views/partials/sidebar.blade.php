@@ -103,7 +103,7 @@ $sidebarTree = $categoryTree ?? [];
     </div>
     @endif
 
-    {{-- USER + LOGOUT --}}
+    {{-- Last retrieval + USER + LOGOUT --}}
     <div class="border-t border-gray-200 py-3 px-3 shrink-0">
         @auth
             @php
