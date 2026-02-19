@@ -36,11 +36,22 @@ This installs dependencies, generates an application key, runs migrations, and b
 
 ## Development
 
+### How to get started
+
+1. **Configure `.env`** — Copy `.env.example` to `.env` and fill in your database, Redis, and NNTP settings (see [Configuration](#configuration)).
+2. **Run migrations and seed**:
+   ```bash
+   php artisan migrate:fresh --seed
+   ```
+3. **Default login** — Use **admin** / **changeme123** to sign in.
+
+Then start the stack:
+
 ```bash
 composer run dev
 ```
 
-Starts the Laravel dev server, queue worker, Pail log viewer, and Vite, all in one terminal.
+This starts the Laravel dev server, queue worker, Pail log viewer, and Vite, all in one terminal.
 
 ### Optional: Laravel Octane (FrankenPHP)
 
