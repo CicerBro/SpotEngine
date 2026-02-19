@@ -43,7 +43,7 @@ $rowBgClass = $rootCategory?->rowBackgroundClass() ?? 'hover:bg-gray-100/60';
     <td class="px-3 py-1.5 text-center">
         @auth
             <a href="{{ route('spots.nzb', $spot) }}"
-               class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600 hover:bg-blue-600 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1">
+               class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-600 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1">
                 NZB
             </a>
         @else
