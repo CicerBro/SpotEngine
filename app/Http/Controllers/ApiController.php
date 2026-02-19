@@ -250,7 +250,7 @@ class ApiController extends Controller
     private function rssResponse(array $spots, ?User $user): Response
     {
         $baseUrl = rtrim((string) config('app.url'), '/');
-        $apiKey = $user?->api_token ?? '';
+        $apiKey = $user !== null ? ($user->api_token ?? '') : '';
 
         $items = '';
         foreach ($spots as $spot) {
