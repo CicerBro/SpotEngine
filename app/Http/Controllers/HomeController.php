@@ -20,7 +20,7 @@ class HomeController extends Controller
     {
         $spots = Spot::query()
             ->select(['id', 'title', 'poster', 'file_size', 'spot_posted_at', 'category_code', 'subcategories'])
-            ->with('category:code,name')
+            ->with('category:code,name,slug')
             ->when($request->filled('cat'), fn ($q) => $q->inCategory($request->cat))
             ->when($request->filled('subcat'), fn ($q) => $q->withSubcategory((array) $request->subcat))
             ->when($request->filled('q'), fn ($q) => $q->search($request->q, SearchField::fromRequest($request->search_in)))
