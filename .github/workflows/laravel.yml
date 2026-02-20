@@ -55,11 +55,8 @@ jobs:
           extensions: mbstring, bcmath, pdo_pgsql, pgsql
           coverage: none
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: npm
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
 
       - name: Copy .env
         run: cp .env.example .env
@@ -69,8 +66,8 @@ jobs:
 
       - name: Build frontend assets
         run: |
-          npm ci
-          npm run build
+          bun install --frozen-lockfile
+          bun run build
 
       - name: Generate app key
         run: php artisan key:generate --force --ansi
