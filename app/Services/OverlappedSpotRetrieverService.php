@@ -40,7 +40,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
         $prevChildPid = null;
         $prevReadPipe = null;
 
-        /** @var array{batchStart: int, batchEnd: int, processed: int, parsed: int, lastInBatch: int}|null */
+        /** @var array{batchStart: int, batchEnd: int, processed: int, parsed: int, lastInBatch: int, moderationCommands: list<array<string,mixed>>}|null */
         $prevBatch = null;
 
         // Collect the previous child's result, update totals, save state, and report.
@@ -51,6 +51,9 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
             $totalInserted += $inserted;
             $totalProcessed += $prevBatch['processed'];
             $highestArticle = max($highestArticle, $prevBatch['lastInBatch']);
+
+            // Moderation is always processed in the parent after the child upsert.
+            $this->processModeration($prevBatch['moderationCommands']);
 
             if ($onBatchComplete !== null) {
                 $onBatchComplete(
@@ -70,7 +73,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
             }
 
             // Fetch current batch — runs while the previous upsert child is active.
-            [$processed, $spots, $lastInBatch] = $this->fetchBatch($batchStart, $batchEnd);
+            [$processed, $spots, $moderationCommands, $lastInBatch] = $this->fetchBatch($batchStart, $batchEnd);
             $parsed = \count($spots);
 
             // SIGINT may have fired during fetchBatch (async signals). If shutdown was
@@ -101,7 +104,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
                 fclose($readPipe);
                 fclose($writePipe);
                 $inserted = $this->batchUpsert($spots);
-                $prevBatch = compact('batchStart', 'batchEnd', 'processed', 'parsed', 'lastInBatch');
+                $prevBatch = compact('batchStart', 'batchEnd', 'processed', 'parsed', 'lastInBatch', 'moderationCommands');
                 $commitPrev($inserted);
 
                 continue;
@@ -130,7 +133,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
             fclose($writePipe);
             $prevChildPid = $pid;
             $prevReadPipe = $readPipe;
-            $prevBatch = compact('batchStart', 'batchEnd', 'processed', 'parsed', 'lastInBatch');
+            $prevBatch = compact('batchStart', 'batchEnd', 'processed', 'parsed', 'lastInBatch', 'moderationCommands');
         }
 
         // Collect the final child.

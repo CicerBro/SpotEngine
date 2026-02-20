@@ -78,6 +78,23 @@ test('resolveBadgeCategory returns null when no match found', function () {
     expect($spot->resolveBadgeCategory(collect()))->toBeNull();
 });
 
+test('resolveBadgeCategory resolves short legacy subcategory codes', function () {
+    $formatCategory = new Category(['code' => '01a09', 'name' => 'x264', 'slug' => 'x264', 'type' => 'format']);
+    $typeCategory = new Category(['code' => '01z01', 'name' => 'Series', 'slug' => 'series', 'type' => 'type']);
+
+    $categoriesByCode = collect([
+        '01a09' => $formatCategory,
+        '01z01' => $typeCategory,
+    ]);
+
+    $spot = new Spot([
+        'category_code' => '01',
+        'subcategories' => ['z1', 'a9'],
+    ]);
+
+    expect($spot->resolveBadgeCategory($categoriesByCode))->toBe($formatCategory);
+});
+
 test('resolveGenreLabel returns genre name', function () {
     $genreCategory = new Category(['code' => '01b05', 'name' => 'Action', 'slug' => 'action', 'type' => 'genre']);
 
@@ -89,6 +106,19 @@ test('resolveGenreLabel returns genre name', function () {
     ]);
 
     expect($spot->resolveGenreLabel($categoriesByCode))->toBe('Action');
+});
+
+test('resolveGenreLabel resolves short legacy subcategory codes', function () {
+    $genreCategory = new Category(['code' => '01d11', 'name' => 'Television', 'slug' => 'television', 'type' => 'genre']);
+
+    $categoriesByCode = collect(['01d11' => $genreCategory]);
+
+    $spot = new Spot([
+        'category_code' => '01',
+        'subcategories' => ['d11'],
+    ]);
+
+    expect($spot->resolveGenreLabel($categoriesByCode))->toBe('Television');
 });
 
 test('resolveGenreLabel skips dash genre', function () {

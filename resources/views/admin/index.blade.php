@@ -38,7 +38,7 @@
                 <tbody class="divide-y divide-gray-100 text-gray-700">
                     @foreach($stats['category_stats'] as $stat)
                         <tr>
-                            <td class="px-4 py-2">{{ $stat->category_code }}</td>
+                            <td class="px-4 py-2">{{ $stat->category_name }}</td>
                             <td class="px-4 py-2 font-mono">{{ number_format($stat->count) }}</td>
                             <td class="px-4 py-2 text-xs text-gray-500">{{ \Carbon\Carbon::parse($stat->latest)->diffForHumans() }}</td>
                         </tr>

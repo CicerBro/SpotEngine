@@ -14,7 +14,7 @@
         </button>
 
         <a href="{{ route('home') }}" class="text-3xl leading-none">
-            <span class="font-semibold text-gray-900">Spot</span><span class="font-semibold text-blue-600">Engine</span>
+            <span class="font-bold text-gray-900">Spot</span><span class="font-semibold text-blue-600">Engine</span>
         </a>
     </div>
 

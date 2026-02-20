@@ -4,18 +4,17 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Models\Spot;
 use App\Services\OverlappedSpotRetrieverService;
 use Illuminate\Console\Command;
 
 class RetrieveSpots extends Command
 {
     protected $signature = 'spot:retrieve
-                            {--full : Perform a full retrieval, ignoring last position}
+                            {--initial-scan : XOVER only — fast bulk index; run spot:enrich afterwards to populate X-XML}
                             {--backfill : Fetch older spots below current position (run repeatedly until complete)}
                             {--reset-backfill : Reset backfill progress and start over}
                             {--limit= : Maximum number of articles per run}
-                            {--connections= : Number of parallel NNTP connections (default from config)}';
+                            {--connections= : Parallel NNTP connections — only used with --initial-scan (default from config)}';
 
     protected $description = 'Fetch new spots from Usenet and store them in the database';
 
@@ -41,9 +40,9 @@ class RetrieveSpots extends Command
 
         try {
             $result = $service->retrieve(
-                fullRetrieval: (bool) $this->option('full'),
                 backfill: (bool) $this->option('backfill'),
                 resetBackfill: (bool) $this->option('reset-backfill'),
+                initialScan: (bool) $this->option('initial-scan'),
                 limit: $limit,
                 connections: $connections,
                 onBatchComplete: function (int $batchStart, int $batchEnd, int $processed, int $parsed, int $inserted): void {
@@ -69,6 +68,20 @@ class RetrieveSpots extends Command
                 ['Inserted', $result['inserted']],
                 ['Last article', $result['last_article']],
             ]);
+
+            if ($this->option('initial-scan')) {
+                $this->newLine();
+                $this->components->info('Initial scan complete — spots are browsable now with basic metadata (title, category, size, poster).');
+                $this->newLine();
+                $this->line('  Run the enrich command to fetch full X-XML data for all indexed spots:');
+                $this->newLine();
+                $this->line('    <fg=green>php artisan spot:enrich</>');
+                $this->newLine();
+                $this->line('  This fetches descriptions, image references, NZB segments and verifies');
+                $this->line('  signatures. It can run in the background — spots opened by users are');
+                $this->line('  enriched lazily in real-time regardless.');
+                $this->newLine();
+            }
         } catch (\Throwable $e) {
             // Silence error when Control+C'ing out of the command
             if ($e->getMessage() === 'Call to a member function quit() on null') {
@@ -105,14 +118,6 @@ class RetrieveSpots extends Command
             $this->error('NNTP credentials are incomplete. Set both NNTP_USERNAME and NNTP_PASSWORD in your .env, or leave both empty for anonymous access.');
 
             return self::FAILURE;
-        }
-
-        if ($this->option('full') && Spot::query()->exists()) {
-            $count = Spot::query()->count();
-            $this->warn("The spots table already contains {$count} records. A full retrieval will re-download everything.");
-            if (! $this->confirm('Do you want to continue?')) {
-                return self::SUCCESS;
-            }
         }
 
         return null;

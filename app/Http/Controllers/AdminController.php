@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Enums\RootCategory;
 use App\Models\Spot;
 use App\Models\UsenetState;
 use App\Models\User;
@@ -15,15 +16,39 @@ class AdminController extends Controller
 {
     public function index(): View
     {
+        /** @var \Illuminate\Support\Collection<int, object{category_code: string, count: int|string, latest: string}> $categoryRows */
+        $categoryRows = Spot::query()
+            ->toBase()
+            ->selectRaw('category_code, COUNT(*) as count, MAX(spot_posted_at) as latest')
+            ->groupBy('category_code')
+            ->orderBy('category_code')
+            ->get();
+
+        $categoryStats = $categoryRows->map(
+            /**
+             * @param  object{category_code: string, count: int|string, latest: string}  $row
+             */
+            static function (object $row): object {
+                $rootCode = strlen((string) $row->category_code) >= 2
+                    ? substr((string) $row->category_code, 0, 2)
+                    : $row->category_code;
+                $root = RootCategory::tryFrom($rootCode);
+                $categoryName = $root instanceof RootCategory ? $root->name : $row->category_code;
+
+                return (object) [
+                    'category_code' => $row->category_code,
+                    'category_name' => $categoryName,
+                    'count' => (int) $row->count,
+                    'latest' => $row->latest,
+                ];
+            }
+        );
+
         return view('admin.index', [
             'stats' => [
                 'total_spots' => Spot::query()->count(),
                 'total_users' => User::query()->count(),
-                'category_stats' => Spot::query()
-                    ->selectRaw('category_code, COUNT(*) as count, MAX(spot_posted_at) as latest')
-                    ->groupBy('category_code')
-                    ->orderBy('category_code')
-                    ->get(),
+                'category_stats' => $categoryStats,
             ],
             'latestSpots' => Spot::query()->orderBy('spot_posted_at', 'desc')->limit(10)->get(),
             'usenetState' => UsenetState::all(),

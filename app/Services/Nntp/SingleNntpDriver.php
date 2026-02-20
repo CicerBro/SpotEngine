@@ -247,17 +247,17 @@ class SingleNntpDriver implements NntpDriverInterface
      * Articles that return 430 (No Such Article) are passed as null to $onArticle
      * or stored as null in the returned array.
      *
-     * @param  array<int>  $articleNumbers
+     * @param  array<int|string>  $articles
      * @param  callable(?array<string,string>): void|null  $onArticle
-     * @return array<int, array<string, string>|null>
+     * @return array<int|string, array<string, string>|null>
      */
-    public function headParallel(array $articleNumbers, bool $showProgress = true, ?callable $onArticle = null): array
+    public function headParallel(array $articles, bool $showProgress = true, ?callable $onArticle = null): array
     {
         $results = [];
 
-        foreach ($articleNumbers as $num) {
+        foreach ($articles as $id) {
             try {
-                $headers = $this->head($num);
+                $headers = $this->head($id);
             } catch (NntpException) {
                 $headers = null;
             }
@@ -265,7 +265,7 @@ class SingleNntpDriver implements NntpDriverInterface
             if ($onArticle !== null) {
                 $onArticle($headers);
             } else {
-                $results[$num] = $headers;
+                $results[$id] = $headers;
             }
         }
 

@@ -47,10 +47,10 @@ test('makeDriver respects connection count override', function () {
     expect($driver->getConnectionCount())->toBe(0);
 });
 
-test('makeClient returns SingleNntpDriver instance', function () {
+test('makeDriver with driver override returns SingleNntpDriver instance', function () {
     $service = new NntpService(nntpConfig());
 
-    expect($service->makeClient())->toBeInstanceOf(SingleNntpDriver::class);
+    expect($service->makeDriver(driver: 'single'))->toBeInstanceOf(SingleNntpDriver::class);
 });
 
 test('getConfig returns the config array', function () {

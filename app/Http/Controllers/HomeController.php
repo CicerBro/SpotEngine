@@ -9,12 +9,16 @@ use App\Models\Category;
 use App\Models\Spot;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\NzbGenerator;
+use App\Services\SpotEnricher;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 
 class HomeController extends Controller
 {
-    public function __construct(private readonly NntpService $nntpService) {}
+    public function __construct(
+        private readonly NntpService $nntpService,
+        private readonly SpotEnricher $enricher,
+    ) {}
 
     public function index(Request $request): \Illuminate\View\View
     {
@@ -40,11 +44,13 @@ class HomeController extends Controller
 
     public function show(Spot $spot): \Illuminate\View\View
     {
+        $this->enricher->enrich($spot);
+
         $categoriesByCode = Category::allCached()->keyBy('code');
 
         $subcategoryNames = collect($spot->subcategories ?? [])
-            ->mapWithKeys(function (string $code) use ($categoriesByCode): array {
-                $category = $categoriesByCode->get($code);
+            ->mapWithKeys(function (string $code) use ($categoriesByCode, $spot): array {
+                $category = $spot->resolveSubcategory($categoriesByCode, $code);
 
                 if ($category instanceof Category) {
                     if ($category->name === '-') {
@@ -58,7 +64,13 @@ class HomeController extends Controller
             });
 
         $badgeCategory = $spot->resolveBadgeCategory($categoriesByCode);
-        $badgeLabel = $badgeCategory->name ?? ($spot->category->name ?? $spot->category_code);
+        if ($badgeCategory instanceof Category) {
+            $badgeLabel = $badgeCategory->name;
+        } elseif ($spot->category instanceof Category) {
+            $badgeLabel = $spot->category->name;
+        } else {
+            $badgeLabel = $spot->category_code;
+        }
 
         return view('spots.show', [
             'spot' => $spot,
@@ -73,6 +85,8 @@ class HomeController extends Controller
 
     public function getNzb(Spot $spot): Response
     {
+        $this->enricher->enrich($spot);
+
         abort_if(empty($spot->nzb_segments), 404, 'No NZB data available.');
 
         $cacheKey = 'nzb.'.$spot->id;
@@ -82,7 +96,7 @@ class HomeController extends Controller
 
         if ($nzb === false) {
             $config = $this->nntpService->getConfig();
-            $nntp = $this->nntpService->makeClient();
+            $nntp = $this->nntpService->makeDriver(driver: 'single');
             $nntp->connect();
 
             $generator = new NzbGenerator($nntp);
@@ -100,12 +114,14 @@ class HomeController extends Controller
             'Content-Type' => 'application/x-nzb',
             'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             'X-DNZB-Name' => $spot->title,
-            'Cache-Control' => 'public, max-age=86400',
+            'Cache-Control' => 'public, max-age=2592000',
         ]);
     }
 
     public function getImage(Spot $spot): Response
     {
+        $this->enricher->enrich($spot);
+
         if (! $spot->image_segment) {
             return $this->placeholderImageResponse('No Image');
         }
@@ -122,7 +138,7 @@ class HomeController extends Controller
 
         try {
             $config = $this->nntpService->getConfig();
-            $nntp = $this->nntpService->makeClient();
+            $nntp = $this->nntpService->makeDriver(driver: 'single');
             $nntp->connect();
             $nntp->group($config['groups']['spots']);
 
@@ -176,7 +192,7 @@ class HomeController extends Controller
 
         return response($data, 200, [
             'Content-Type' => $contentType,
-            'Cache-Control' => 'public, max-age=604800',
+            'Cache-Control' => 'public, max-age=2592000',
         ]);
     }
 

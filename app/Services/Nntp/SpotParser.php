@@ -26,7 +26,9 @@ class SpotParser
      *   [Nickname] <[pubkey.usersig]@[CAT][KEYID][SUBCATS].[SIZE].[RAND].[DATE].[...][SIG]>
      *
      * @param  array{subject: string, from: string, date: string, message_id: string}  $overview
-     * @return array<string, mixed>|null
+     * @return array{_moderation: true, command: string, target_message_id: string, poster: string, stamp: int}
+     *                                                                                                          | array<string, mixed>
+     *                                                                                                          | null
      */
     public function parseFromOverview(array $overview): ?array
     {
@@ -82,20 +84,61 @@ class SpotParser
         }
 
         // Remaining characters in field0 are the subcategory string.
-        $subcategories = $this->parseSubcatString(substr($field0, 2));
+        $subcategories = $this->parseSubcatString(substr($field0, 2), $categoryCode);
 
         $fileSize = (int) $fields[1];
 
         // Subject: decode MIME encoding if present, then split on first pipe.
         // Old Spotnet headers are raw ISO-8859-1, so ensure UTF-8 after decoding.
         $decodedSubject = $this->toUtf8($this->decodeMimeHeader($subject));
+
+        // Keyid 2 articles are Spotnet moderation commands: the poster holds a
+        // trusted key and the Subject encodes a command + target message-id.
+        // These must be detected before the DISPOSE continuation filter below,
+        // because "dispose" is also a valid moderation command.
+        if ($keyId === 2) {
+            $parts = explode(' ', trim($decodedSubject), 2);
+            $command = strtolower($parts[0]);
+
+            if (\in_array($command, ['delete', 'dispose', 'remove'], true)) {
+                $targetMessageId = trim($parts[1] ?? '', '<> ');
+
+                if ($targetMessageId !== '') {
+                    $timestamp = strtotime($date);
+                    $now = time();
+
+                    if ($timestamp === false || $timestamp > $now + 86400) {
+                        $timestamp = $now;
+                    }
+
+                    $poster = mb_substr($this->toUtf8(trim(substr($from, 0, $ltPos))), 0, 255);
+
+                    return [
+                        '_moderation' => true,
+                        'command' => $command,
+                        'target_message_id' => $targetMessageId,
+                        'poster' => $poster,
+                        'stamp' => $timestamp,
+                    ];
+                }
+            }
+
+            // Not a valid moderation command — treat as a regular spot below.
+        }
+
+        // Skip Spotnet continuation articles — multi-part XML headers that were
+        // too large for a single NNTP article. Their Subject starts with "DISPOSE ".
+        if (stripos($decodedSubject, 'DISPOSE ') === 0) {
+            return null;
+        }
+
         $pipePos = strpos($decodedSubject, '|');
 
         if ($pipePos !== false) {
-            $title = trim(substr($decodedSubject, 0, $pipePos));
-            $tag = trim(substr($decodedSubject, $pipePos + 1)) ?: null;
+            $title = mb_substr(trim(substr($decodedSubject, 0, $pipePos)), 0, 500);
+            $tag = mb_substr(trim(substr($decodedSubject, $pipePos + 1)), 0, 255) ?: null;
         } else {
-            $title = trim($decodedSubject);
+            $title = mb_substr(trim($decodedSubject), 0, 500);
             $tag = null;
         }
 
@@ -104,7 +147,7 @@ class SpotParser
         }
 
         // Poster name: everything before the < in the From header.
-        $poster = $this->toUtf8(trim(substr($from, 0, $ltPos)));
+        $poster = mb_substr($this->toUtf8(trim(substr($from, 0, $ltPos))), 0, 255);
 
         // Timestamp from Date header; clamp futures to now.
         $timestamp = strtotime($date);
@@ -138,11 +181,12 @@ class SpotParser
      * Parse the subcategory substring from a Spotnet From domain first field.
      *
      * Format: letter+digits pairs (e.g. "a11b03c04d44z02" or "a9b4c0d5").
-     * Returns codes normalised to no leading zeros: ["a11", "b3", "c4", ...].
+     * Returns canonical codes prefixed with the 2-digit head category
+     * (e.g. ["01a11", "01b03", "01c04", ...]).
      *
      * @return array<string>
      */
-    private function parseSubcatString(string $str): array
+    private function parseSubcatString(string $str, string $mainCategoryCode): array
     {
         if ($str === '') {
             return [];
@@ -158,7 +202,10 @@ class SpotParser
 
             if (! is_numeric($ch) && $tmp !== '') {
                 if (\in_array($tmp[0], $valid, true)) {
-                    $subs[] = $tmp[0].(int) substr($tmp, 1); // strip leading zeros
+                    $normalized = $this->normalizeSubcategoryCode($tmp, $mainCategoryCode);
+                    if ($normalized !== null) {
+                        $subs[] = $normalized;
+                    }
                 }
 
                 $tmp = '';
@@ -169,7 +216,7 @@ class SpotParser
             }
         }
 
-        return $subs;
+        return array_values(array_unique($subs));
     }
 
     /**
@@ -318,19 +365,18 @@ class SpotParser
                 $main = $matches[1];
             }
 
-            // Extract subcategories (normalise to no leading zeros for consistency with parseFromOverview).
+            // Extract subcategories and normalize to canonical category codes.
             foreach ($posting->Category->Sub ?? [] as $sub) {
-                $subCode = (string) $sub;
-
-                if ($subCode !== '' && $subCode !== '0' && \strlen($subCode) >= 2) {
-                    $subs[] = $subCode[0].(int) substr($subCode, 1);
+                $normalized = $this->normalizeSubcategoryCode((string) $sub, $main);
+                if ($normalized !== null) {
+                    $subs[] = $normalized;
                 }
             }
         }
 
         return [
             'main' => $main,
-            'subs' => $subs,
+            'subs' => array_values(array_unique($subs)),
         ];
     }
 
@@ -367,6 +413,31 @@ class SpotParser
         // Try to extract modulus from RSA key XML and hash it
         if (preg_match('/<Modulus>([^<]+)<\/Modulus>/', $userKey, $matches)) {
             return substr(md5($matches[1]), 0, 16);
+        }
+
+        return null;
+    }
+
+    private function normalizeSubcategoryCode(string $subcategoryCode, string $mainCategoryCode): ?string
+    {
+        $subcategoryCode = strtolower(trim($subcategoryCode));
+
+        if ($subcategoryCode === '' || $subcategoryCode === '0') {
+            return null;
+        }
+
+        if (preg_match('/^([a-z])(\d{1,2})$/', $subcategoryCode, $matches) === 1) {
+            return $mainCategoryCode.$matches[1].sprintf('%02d', (int) $matches[2]);
+        }
+
+        if (preg_match('/^(\d{2})([a-z])(\d{1,2})$/', $subcategoryCode, $matches) === 1) {
+            return $matches[1].$matches[2].sprintf('%02d', (int) $matches[3]);
+        }
+
+        if (preg_match('/^z([0-3])([a-z])(\d{1,2})$/', $subcategoryCode, $matches) === 1) {
+            $normalizedMain = str_pad((string) (((int) $matches[1]) + 1), 2, '0', STR_PAD_LEFT);
+
+            return $normalizedMain.$matches[2].sprintf('%02d', (int) $matches[3]);
         }
 
         return null;

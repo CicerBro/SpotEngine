@@ -15,11 +15,11 @@ interface NntpDriverInterface
     public function xover(int $start, int $end): array;
 
     /**
-     * @param  array<int>  $articleNumbers
+     * @param  array<int|string>  $articles  Article numbers (int) or message-IDs (string, without angle brackets)
      * @param  callable(?array<string,string>): void|null  $onArticle
-     * @return array<int, array<string, string>|null>
+     * @return array<int|string, array<string, string>|null>
      */
-    public function headParallel(array $articleNumbers, bool $showProgress = true, ?callable $onArticle = null): array;
+    public function headParallel(array $articles, bool $showProgress = true, ?callable $onArticle = null): array;
 
     public function quit(): void;
 

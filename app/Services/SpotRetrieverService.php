@@ -8,7 +8,9 @@ use App\Models\Spot;
 use App\Models\UsenetState;
 use App\Services\Nntp\Contracts\NntpDriverInterface;
 use App\Services\Nntp\NntpService;
+use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
+use Illuminate\Support\Facades\Log;
 
 class SpotRetrieverService
 {
@@ -16,23 +18,38 @@ class SpotRetrieverService
 
     protected bool $shuttingDown = false;
 
+    /**
+     * When true, only XOVER is fetched — HEAD enrichment and signature
+     * verification are skipped. Intended for the first full index run.
+     */
+    protected bool $initialScan = false;
+
     public function __construct(
         private readonly SpotParser $parser,
         private readonly NntpService $nntpService,
+        private readonly SigningService $signer,
     ) {}
 
     /**
      * @param  callable(int $batchStart, int $batchEnd, int $processed, int $parsed, int $inserted): void  $onBatchComplete
      */
-    public function retrieve(bool $fullRetrieval = false, bool $backfill = false, bool $resetBackfill = false, ?int $limit = null, ?int $connections = null, ?callable $onBatchComplete = null): array
+    public function retrieve(bool $backfill = false, bool $resetBackfill = false, bool $initialScan = false, ?int $limit = null, ?int $connections = null, ?callable $onBatchComplete = null): array
     {
+        $this->initialScan = $initialScan;
+
         $config = $this->nntpService->getConfig();
         $newsgroup = $config['groups']['spots'];
         $numConns = $connections ?? $config['connections'];
 
-        log_debug('Starting spot retrieval', ['newsgroup' => $newsgroup, 'numConns' => $numConns, 'limit' => $limit, 'fullRetrieval' => $fullRetrieval, 'backfill' => $backfill]);
+        log_debug('Starting spot retrieval', ['newsgroup' => $newsgroup, 'numConns' => $numConns, 'limit' => $limit, 'backfill' => $backfill, 'initialScan' => $initialScan]);
 
-        $this->nntp = $this->nntpService->makeDriver($numConns);
+        // Regular incremental scans use a single connection — only a few hundred
+        // articles at most, so parallel connections add overhead with no benefit.
+        // Initial scans use the parallel driver so XOVER can fan out across many
+        // connections for fast bulk indexing.
+        $this->nntp = $initialScan
+            ? $this->nntpService->makeDriver($numConns)
+            : $this->nntpService->makeDriver(driver: 'single');
         $this->nntp->connect();
 
         echo "Selecting newsgroup {$newsgroup}... ";
@@ -72,7 +89,7 @@ class SpotRetrieverService
 
                 return ['processed' => 0, 'inserted' => 0, 'last_article' => $state->last_article_id];
             }
-        } elseif ($fullRetrieval || $state->last_article_id === 0) {
+        } elseif ($state->last_article_id === 0) {
             $endArticle = $groupInfo['last'];
             $startArticle = $limit !== null
                 ? max($groupInfo['first'], $groupInfo['last'] - $limit)
@@ -191,27 +208,153 @@ class SpotRetrieverService
     /** @return array{int, int, int, int} [processed, parsed, inserted, lastArticle] */
     private function processBatch(int $batchStart, int $batchEnd): array
     {
-        [$processed, $spots, $lastInBatch] = $this->fetchBatch($batchStart, $batchEnd);
+        [$processed, $spots, $moderationCommands, $lastInBatch] = $this->fetchBatch($batchStart, $batchEnd);
         $inserted = $this->batchUpsert($spots);
+        $this->processModeration($moderationCommands);
 
         return [$processed, \count($spots), $inserted, $lastInBatch];
     }
 
-    /** @return array{int, list<array<string, mixed>>, int} [processed, spots, lastArticle] */
+    /**
+     * Fetch a batch of articles via XOVER, optionally enriching with HEAD.
+     *
+     * In normal mode (not initial-scan), HEAD is fetched in parallel for every
+     * article so the spot is fully populated (description, nzb_segments,
+     * image_segment, is_verified) before it reaches the database.
+     *
+     * In initial-scan mode only XOVER runs — HEAD is skipped for speed.
+     *
+     * @return array{int, list<array<string, mixed>>, list<array<string, mixed>>, int}
+     *                                                                                 [processed, spots, moderationCommands, lastArticle]
+     */
     protected function fetchBatch(int $batchStart, int $batchEnd): array
     {
         $overview = $this->nntp->xover($batchStart, $batchEnd);
+
         $spots = [];
+        $moderationCommands = [];
+        $articleNumberToSpotIdx = [];
 
-        foreach ($overview as $headers) {
-            $spot = $this->parser->parseFromOverview($headers);
+        foreach ($overview as $articleNum => $headers) {
+            $result = $this->parser->parseFromOverview($headers);
 
-            if ($spot !== null) {
-                $spots[] = $spot;
+            if ($result === null) {
+                continue;
+            }
+
+            if (isset($result['_moderation'])) {
+                $moderationCommands[] = $result;
+
+                continue;
+            }
+
+            $articleNumberToSpotIdx[$articleNum] = \count($spots);
+            $spots[] = $result;
+        }
+
+        if (! $this->initialScan && $articleNumberToSpotIdx !== []) {
+            $spots = $this->enrichWithHead($spots, $articleNumberToSpotIdx);
+        }
+
+        return [\count($overview), $spots, $moderationCommands, $batchEnd];
+    }
+
+    /**
+     * Fetch HEAD for each article number, parse X-XML, verify signature and
+     * merge the enriched fields back into the spot array.
+     *
+     * @param  list<array<string, mixed>>  $spots
+     * @param  array<int, int>  $articleNumberToSpotIdx  article_number → index in $spots
+     * @return list<array<string, mixed>>
+     */
+    protected function enrichWithHead(array $spots, array $articleNumberToSpotIdx): array
+    {
+        $headResults = $this->nntp->headParallel(array_keys($articleNumberToSpotIdx), showProgress: false);
+
+        foreach ($headResults as $articleNum => $headers) {
+            if ($headers === null || ! isset($articleNumberToSpotIdx[$articleNum])) {
+                continue;
+            }
+
+            $idx = $articleNumberToSpotIdx[$articleNum];
+            $xmlContent = $headers['x-xml'] ?? '';
+            $xmlSignature = $headers['x-xml-signature'] ?? '';
+            $userKey = $headers['x-user-key'] ?? '';
+
+            $xmlData = $this->parser->parseFromHeaders($headers);
+
+            if ($xmlData !== null) {
+                $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== ''
+                    ? $this->signer->verify($xmlContent, $xmlSignature, $userKey)
+                    : false;
+
+                $spots[$idx] = array_merge($spots[$idx], [
+                    'description' => $xmlData['description'] ?? null,
+                    'nzb_segments' => $xmlData['nzb_segments'] ?? [],
+                    'image_segment' => $xmlData['image_segment'] ?? null,
+                    'website' => $xmlData['website'] ?? null,
+                    'xml_signature' => $xmlData['xml_signature'] ?? null,
+                    'poster_key_id' => $xmlData['poster_key_id'] ?? null,
+                    'is_verified' => $isVerified,
+                ]);
             }
         }
 
-        return [\count($overview), $spots, $batchEnd];
+        return $spots;
+    }
+
+    /**
+     * Apply moderation commands: delete or log spots that have been nuked.
+     *
+     * Validates that:
+     * - The referenced spot exists in the database.
+     * - The command is issued within 5 days (432 000 s) of the original posting.
+     *
+     * @param  list<array{_moderation: true, command: string, target_message_id: string, poster: string, stamp: int}>  $commands
+     */
+    protected function processModeration(array $commands): void
+    {
+        if ($commands === []) {
+            return;
+        }
+
+        foreach ($commands as $cmd) {
+            $targetId = $cmd['target_message_id'];
+
+            $spot = Spot::query()->where('message_id', $targetId)->first();
+
+            if (! ($spot instanceof Spot)) {
+                Log::info('NUKE: target not in database', [
+                    'command' => $cmd['command'],
+                    'target_message_id' => $targetId,
+                    'moderator' => $cmd['poster'],
+                ]);
+
+                continue;
+            }
+
+            $ageSeconds = $cmd['stamp'] - $spot->spot_posted_at->timestamp;
+
+            if ($ageSeconds > 432000) {
+                Log::warning('NUKE: command issued more than 5 days after posting — ignored', [
+                    'command' => $cmd['command'],
+                    'target_message_id' => $targetId,
+                    'spot_title' => $spot->title,
+                    'age_hours' => round($ageSeconds / 3600, 1),
+                ]);
+
+                continue;
+            }
+
+            Log::info('NUKE: removing spot', [
+                'command' => $cmd['command'],
+                'target_message_id' => $targetId,
+                'spot_title' => $spot->title,
+                'moderator' => $cmd['poster'],
+            ]);
+
+            $spot->delete();
+        }
     }
 
     /** @param list<array<string, mixed>> $spots */
@@ -274,6 +417,13 @@ class SpotRetrieverService
      */
     private function upsertSpotChunk(array $chunk): int
     {
+        // Strip internal-only keys before writing to the database.
+        $chunk = array_map(static function (array $spot): array {
+            unset($spot['_moderation']);
+
+            return $spot;
+        }, $chunk);
+
         $timestamp = now();
         $rows = [];
 
@@ -286,14 +436,14 @@ class SpotRetrieverService
             ]);
         }
 
-        // Only update the fields available from XOVER. X-XML fields (description,
-        // nzb_segments, image_segment, website) are preserved if already populated
-        // from a prior HEAD fetch.
-        return Spot::upsert(
-            $rows,
-            ['message_id'],
-            ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'xml_signature', 'updated_at']
-        );
+        // In initial-scan mode only XOVER fields are updated on conflict, so that
+        // a later HEAD-enrichment run does not get overwritten by a re-scan.
+        // In normal mode the full set (including X-XML) is updated on conflict.
+        $updateColumns = $this->initialScan
+            ? ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'updated_at']
+            : ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'description', 'nzb_segments', 'image_segment', 'website', 'xml_signature', 'poster_key_id', 'is_verified', 'updated_at'];
+
+        return Spot::upsert($rows, ['message_id'], $updateColumns);
     }
 
     public function shutdown(): void

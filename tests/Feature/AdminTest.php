@@ -24,7 +24,9 @@ test('admin routes forbid non-admin users', function () {
 
 test('admin can view dashboard', function () {
     $admin = User::factory()->admin()->create();
-    Spot::factory()->count(2)->create();
+    $latestSpotTime = now()->subHour()->startOfSecond();
+    Spot::factory()->inCategory('01')->create(['spot_posted_at' => $latestSpotTime->copy()->subDay()]);
+    Spot::factory()->inCategory('01')->create(['spot_posted_at' => $latestSpotTime]);
 
     $response = $this->actingAs($admin)->get(route('admin.index'));
 
@@ -32,6 +34,16 @@ test('admin can view dashboard', function () {
     $response->assertViewIs('admin.index');
     $response->assertViewHas('stats');
     expect($response->viewData('stats')['total_spots'])->toBe(2);
+
+    $categoryStats = $response->viewData('stats')['category_stats'];
+    $firstCategory = $categoryStats->first();
+
+    expect($firstCategory)->not->toBeNull();
+    expect($firstCategory->category_code)->toBe('01');
+    expect($firstCategory->category_name)->toBe('Image');
+    expect($firstCategory->count)->toBe(2);
+    expect(\Carbon\Carbon::parse($firstCategory->latest)->toDateTimeString())
+        ->toBe($latestSpotTime->toDateTimeString());
 });
 
 test('admin can view users list', function () {
