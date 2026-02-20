@@ -13,7 +13,7 @@ class SearchServiceProvider extends ServiceProvider
     #[\Override]
     public function register(): void
     {
-        $this->app->singleton(fn (): \App\Services\Search\Contracts\SearchDriver => match (config('search.driver')) {
+        $this->app->singleton(\App\Services\Search\Contracts\SearchDriver::class, fn (): \App\Services\Search\Contracts\SearchDriver => match (config('search.driver')) {
             'manticore' => new ManticoreSearchDriver(
                 host: config('search.drivers.manticore.host'),
                 port: config('search.drivers.manticore.port'),
