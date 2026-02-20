@@ -103,7 +103,7 @@ Run once when setting up a new instance:
 php artisan spot:retrieve --initial-scan
 ```
 
-Uses XOVER to bulk-index spots in parallel. This is fast — the newsgroup's full history can be indexed in minutes. Spots are immediately browsable with their core metadata: title, category, size, and poster. Descriptions, images, NZB segments, and signature verification are not yet populated.
+Uses XOVER to bulk-index spots in parallel. This is fast — the newsgroup's full history can be indexed in minutes. Spots are immediately browsable with their core metadata: title, category, size, and poster. Descriptions, images, NZB segments, and signature verification are not yet populated (see below).
 
 ### 2. Enrichment (`spot:enrich`)
 
