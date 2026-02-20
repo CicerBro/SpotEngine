@@ -9,3 +9,6 @@ services:
         volumes: !override
             - caddy_data:/data
             - caddy_config:/config
+            # NZB and image cache bind-mounted outside the image for persistence across rebuilds
+            - ./storage/app/cache/nzb:/app/storage/app/cache/nzb
+            - ./storage/app/cache/images:/app/storage/app/cache/images
