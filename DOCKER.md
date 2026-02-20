@@ -15,6 +15,14 @@ The app image sets PHP `memory_limit=1G` (CLI and HTTP runtime).
 - Development mode: bind-mounts your local source into the container (`.:/app`) for fast edit/reload.
 - Production-like mode: copies source code into an immutable image (no bind mount) for reproducible deployments.
 
+## APP_KEY (Required)
+
+Every Laravel installation needs `APP_KEY`.
+
+It is used for encryption of session/cookie payloads and other encrypted values. If `APP_KEY` is missing, Laravel will fail for encryption features. If it changes after data is written, previously encrypted data becomes unreadable.
+
+Set `APP_KEY` in `.env` before normal use.
+
 ## Environment Variables
 
 Compose reads values from the Laravel `.env` file in this project root.
@@ -52,11 +60,24 @@ docker compose up --build -d
 docker compose exec app composer install
 ```
 
-4. Generate app key and migrate:
+4. Generate app key (if `APP_KEY` is empty):
 
 ```bash
-docker compose exec app php artisan key:generate
-docker compose exec app php artisan migrate --seed
+docker compose exec app php artisan key:generate --force
+```
+
+5. Initialize database:
+
+First bootstrap or full reset (destructive):
+
+```bash
+docker compose exec app php artisan migrate:fresh --seed --force
+```
+
+Normal updates (non-destructive):
+
+```bash
+docker compose exec app php artisan migrate --seed --force
 ```
 
 App URL:
@@ -89,11 +110,18 @@ docker compose -f compose.yml -f compose.prod.yml up --build -d
 
 This keeps infrastructure from `compose.yml` and replaces the app build with `docker/frankenphp/Dockerfile.prod`.
 
-Run app initialization commands:
+Ensure your `.env` contains a non-empty `APP_KEY` before first run.
+
+Generate one if needed:
 
 ```bash
-docker compose -f compose.yml -f compose.prod.yml exec app php artisan key:generate
-docker compose -f compose.yml -f compose.prod.yml exec app php artisan migrate --seed
+php -r "echo 'base64:'.base64_encode(random_bytes(32)).PHP_EOL;"
+```
+
+Then initialize schema/data:
+
+```bash
+docker compose -f compose.yml -f compose.prod.yml exec app php artisan migrate --seed --force
 ```
 
 To run Octane in worker mode with the immutable image:
@@ -127,6 +155,12 @@ Production-like equivalent:
 ```bash
 docker compose -f compose.yml -f compose.prod.yml up --build -d app db
 ```
+
+## Why Prod Uses `composer install --no-scripts`
+
+The production image build intentionally skips Composer scripts. In this project, Composer post-install hooks run Artisan commands (for example `spot:categories:update`) that depend on runtime services such as the database. Those services are not available during image build, so running scripts at build-time is brittle and can fail builds.
+
+Runtime initialization (`APP_KEY`, migrations, seeding) should happen after containers are up.
 
 ## Useful Commands
 

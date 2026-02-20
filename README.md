@@ -34,6 +34,8 @@ composer run setup
 
 This installs dependencies, generates an application key, runs migrations, and builds frontend assets.
 
+`APP_KEY` is required for every Laravel installation. It is used to encrypt sessions, cookies, and other secure payloads. If `APP_KEY` is missing, encryption features fail; if it changes after data is written, existing encrypted data becomes unreadable.
+
 ## Docker
 
 Use Docker Compose with FrankenPHP/PostgreSQL/Redis:
@@ -45,11 +47,23 @@ Use Docker Compose with FrankenPHP/PostgreSQL/Redis:
 ### How to get started
 
 1. **Configure `.env`** — Copy `.env.example` to `.env` and fill in your database, Redis, and NNTP settings (see [Configuration](#configuration)).
-2. **Run migrations and seed**:
+2. **Install PHP dependencies**:
+    ```bash
+    composer install
+    ```
+3. **Install frontend dependencies**:
+    ```bash
+    bun install
+    ```
+4. **Generate an app key** (if `APP_KEY` is empty):
+    ```bash
+    php artisan key:generate
+    ```
+5. **Run migrations and seed**:
     ```bash
     php artisan migrate:fresh --seed
     ```
-3. **Default login** — Use **admin** / **changeme123** to sign in.
+6. **Default login** — Use **admin** / **changeme123** to sign in.
 
 Then start the stack:
 
@@ -83,6 +97,7 @@ Copy `.env.example` to `.env` and fill in:
 
 | Variable                             | Description                                                      |
 | ------------------------------------ | ---------------------------------------------------------------- |
+| `APP_KEY`                            | Required Laravel encryption key                                  |
 | `DB_*`                               | PostgreSQL connection                                            |
 | `REDIS_*`                            | Redis connection (`REDIS_CACHE_DB` defaults to `1`)              |
 | `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server                                                    |
