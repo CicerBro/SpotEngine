@@ -8,7 +8,7 @@ use App\Enums\SearchField;
 use App\Models\Category;
 use App\Models\Spot;
 use App\Services\Nntp\NntpService;
-use App\Services\Nntp\NzbGenerator;
+use App\Services\NzbDownloadService;
 use App\Services\SpotEnricher;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -18,6 +18,7 @@ class HomeController extends Controller
     public function __construct(
         private readonly NntpService $nntpService,
         private readonly SpotEnricher $enricher,
+        private readonly NzbDownloadService $nzbService,
     ) {}
 
     public function index(Request $request): \Illuminate\View\View
@@ -85,34 +86,11 @@ class HomeController extends Controller
 
     public function getNzb(Spot $spot): Response
     {
-        $this->enricher->enrich($spot);
-
-        abort_if(empty($spot->nzb_segments), 404, 'No NZB data available.');
-
-        $cacheKey = 'nzb.'.$spot->id;
-        $cachePath = config('spotengine.cache.nzb_path').DIRECTORY_SEPARATOR.md5($cacheKey).'.nzb';
-
-        $nzb = file_exists($cachePath) ? file_get_contents($cachePath) : false;
-
-        if ($nzb === false) {
-            $config = $this->nntpService->getConfig();
-            $nntp = $this->nntpService->makeDriver(driver: 'single');
-            $nntp->connect();
-
-            $generator = new NzbGenerator($nntp);
-            $nzb = $generator->fetchNzb($spot->nzb_segments, $config['groups']['nzb'] ?? $config['groups']['spots']);
-            $nntp->quit();
-
-            @mkdir(dirname($cachePath), 0755, true);
-            file_put_contents($cachePath, $nzb);
-        }
-
-        $filename = preg_replace('/[^a-zA-Z0-9_\-.]/', '_', $spot->title);
-        $filename = substr((string) $filename, 0, 100).'.nzb';
+        $nzb = $this->nzbService->fetchNzb($spot);
 
         return response($nzb, 200, [
             'Content-Type' => 'application/x-nzb',
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Content-Disposition' => 'attachment; filename="'.$this->nzbService->filename($spot).'"',
             'X-DNZB-Name' => $spot->title,
             'Cache-Control' => 'public, max-age=2592000',
         ]);
@@ -140,10 +118,17 @@ class HomeController extends Controller
             $config = $this->nntpService->getConfig();
             $nntp = $this->nntpService->makeDriver(driver: 'single');
             $nntp->connect();
-            $nntp->group($config['groups']['spots']);
 
-            $body = $nntp->body($spot->image_segment);
-            $nntp->quit();
+            try {
+                $nntp->group($config['groups']['spots']);
+                $body = $nntp->body($spot->image_segment);
+            } finally {
+                try {
+                    $nntp->quit();
+                } catch (\Throwable) {
+                    // Ignore quit errors.
+                }
+            }
 
             if ($body === '' || $body === '0') {
                 return $this->placeholderImageResponse('Load Failed');
@@ -155,8 +140,13 @@ class HomeController extends Controller
                 return $this->placeholderImageResponse('Decode Failed');
             }
 
-            @mkdir(dirname($cachePath), 0755, true);
-            file_put_contents($cachePath, $imageData);
+            $dir = dirname($cachePath);
+
+            if (! is_dir($dir)) {
+                mkdir($dir, 0755, true);
+            }
+
+            file_put_contents($cachePath, $imageData, LOCK_EX);
 
             return $this->imageResponse($imageData);
         } catch (\Throwable) {

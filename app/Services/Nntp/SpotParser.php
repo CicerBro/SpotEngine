@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Nntp;
 
+use Illuminate\Support\Facades\Log;
+
 /**
  * Spotnet Protocol Parser
  *
@@ -267,8 +269,7 @@ class SpotParser
         try {
             return $this->parseXml($xml, $headers);
         } catch (\Throwable $e) {
-            // Log error but don't fail
-            error_log('Failed to parse spot XML: '.$e->getMessage());
+            Log::warning('Failed to parse spot XML', ['error' => $e->getMessage()]);
 
             return null;
         }
@@ -300,7 +301,7 @@ class SpotParser
         // Navigate to Posting element
         $posting = $doc->Posting ?? $doc;
 
-        if (! property_exists($posting, 'Title') || $posting->Title === null) {
+        if (! isset($posting->Title)) {
             return null;
         }
 
@@ -312,7 +313,7 @@ class SpotParser
 
         // Parse image segment
         $imageSegment = null;
-        if (property_exists($posting->Image, 'Segment') && $posting->Image->Segment !== null) {
+        if (isset($posting->Image->Segment)) {
             $imageSegment = (string) $posting->Image->Segment;
         }
 
@@ -321,15 +322,15 @@ class SpotParser
             'message_id' => $headers['message-id'] ?? trim($headers['message_id'] ?? '', '<>'),
             'poster' => (string) ($posting->Poster ?? $headers['from'] ?? 'Unknown'),
             'title' => (string) $posting->Title,
-            'description' => property_exists($posting, 'Description') && $posting->Description !== null ? (string) $posting->Description : null,
-            'tag' => property_exists($posting, 'Tag') && $posting->Tag !== null ? (string) $posting->Tag : null,
-            'website' => property_exists($posting, 'Website') && $posting->Website !== null ? (string) $posting->Website : null,
+            'description' => isset($posting->Description) ? (string) $posting->Description : null,
+            'tag' => isset($posting->Tag) ? (string) $posting->Tag : null,
+            'website' => isset($posting->Website) ? (string) $posting->Website : null,
             'category_code' => $category['main'],
             'subcategories' => $category['subs'],
-            'file_size' => property_exists($posting, 'Size') && $posting->Size !== null ? (int) (string) $posting->Size : 0,
+            'file_size' => isset($posting->Size) ? (int) (string) $posting->Size : 0,
             'image_segment' => $imageSegment,
             'nzb_segments' => $nzbSegments,
-            'spot_posted_at' => property_exists($posting, 'Created') && $posting->Created !== null
+            'spot_posted_at' => isset($posting->Created)
                 ? date('Y-m-d H:i:s', (int) (string) $posting->Created)
                 : ($headers['date'] ?? date('Y-m-d H:i:s')),
             'xml_signature' => $headers['x-xml-signature'] ?? null,
@@ -337,7 +338,7 @@ class SpotParser
         ];
 
         // Try to parse date from header if not in XML
-        if ((! property_exists($posting, 'Created') || $posting->Created === null) && isset($headers['date'])) {
+        if (! isset($posting->Created) && isset($headers['date'])) {
             $timestamp = strtotime($headers['date']);
             if ($timestamp !== false) {
                 $spot['spot_posted_at'] = date('Y-m-d H:i:s', $timestamp);
@@ -357,7 +358,7 @@ class SpotParser
         $main = '01'; // Default to Image category
         $subs = [];
 
-        if (property_exists($posting, 'Category') && $posting->Category !== null) {
+        if (isset($posting->Category)) {
             $categoryText = trim((string) $posting->Category);
 
             // Extract main category (first 2 digits)
@@ -389,7 +390,7 @@ class SpotParser
     {
         $segments = [];
 
-        if (property_exists($posting, 'NZB') && $posting->NZB !== null) {
+        if (isset($posting->NZB)) {
             foreach ($posting->NZB->Segment ?? [] as $segment) {
                 $segmentId = (string) $segment;
                 if ($segmentId !== '' && $segmentId !== '0') {
@@ -441,54 +442,5 @@ class SpotParser
         }
 
         return null;
-    }
-
-    /**
-     * Map old Spotnet category codes to our normalized system
-     *
-     * Spotnet uses:
-     * - z0 = Image (Movies/Series)
-     * - z1 = Sound
-     * - z2 = Games
-     * - z3 = Applications
-     *
-     * We use:
-     * - 01 = Image
-     * - 02 = Sound
-     * - 03 = Games
-     * - 04 = Applications
-     */
-    public static function normalizeCategory(string $code): string
-    {
-        // Handle old z-prefix format
-        if (str_starts_with($code, 'z')) {
-            $num = (int) substr($code, 1, 1);
-
-            return str_pad((string) ($num + 1), 2, '0', STR_PAD_LEFT);
-        }
-
-        // Already normalized
-        return substr($code, 0, 2);
-    }
-
-    /**
-     * Normalize subcategory codes
-     *
-     * @param  array<string>  $subs
-     * @return array<string>
-     */
-    public static function normalizeSubcategories(array $subs): array
-    {
-        return array_map(function (string $sub): string {
-            // Convert old format (e.g., "z0d03") to new format (e.g., "01d03")
-            if (str_starts_with($sub, 'z')) {
-                $mainNum = (int) substr($sub, 1, 1) + 1;
-                $main = str_pad((string) $mainNum, 2, '0', STR_PAD_LEFT);
-
-                return $main.substr($sub, 2);
-            }
-
-            return $sub;
-        }, $subs);
     }
 }

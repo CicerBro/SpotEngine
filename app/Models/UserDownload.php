@@ -25,7 +25,7 @@ class UserDownload extends Model
     protected function casts(): array
     {
         return [
-            'downloaded_at' => 'datetime',
+            'downloaded_at' => 'immutable_datetime',
         ];
     }
 

@@ -5,12 +5,27 @@
 @section('content')
 <div class="space-y-6 p-4">
 
+    @include('partials.admin-nav')
+
     <header class="rounded-xl border border-gray-200 bg-white shadow-sm p-5">
         <h1 class="text-2xl font-semibold tracking-tight text-gray-900">Users</h1>
         <p class="mt-1 text-sm text-gray-500">Manage accounts and admin access.</p>
     </header>
 
     <section class="rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div class="border-b border-gray-100 bg-gray-50 px-4 py-3">
+            <form method="GET" action="{{ route('admin.users') }}" class="flex items-center gap-2">
+                <input type="text" name="search" value="{{ $search ?? '' }}" placeholder="Search username, email, or API token…"
+                       class="block w-full max-w-sm rounded-lg border-0 bg-white px-3 py-1.5 text-sm text-gray-900 shadow-sm ring-1 ring-inset ring-gray-300 placeholder:text-gray-400 focus:ring-2 focus:ring-inset focus:ring-blue-600 focus:outline-none">
+                <button type="submit"
+                        class="inline-flex items-center justify-center rounded-md border border-transparent bg-gray-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-gray-700 transition-colors">
+                    Search
+                </button>
+                @if($search ?? false)
+                    <a href="{{ route('admin.users') }}" class="text-sm text-gray-500 hover:text-gray-700 transition-colors">Clear</a>
+                @endif
+            </form>
+        </div>
         <table class="w-full text-sm">
             <thead class="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
                 <tr class="text-left">
@@ -48,6 +63,11 @@
                 @endforeach
             </tbody>
         </table>
+        @if($users->hasPages())
+            <div class="border-t border-gray-100 px-4 py-3">
+                {{ $users->links() }}
+            </div>
+        @endif
     </section>
 
     <section class="rounded-xl border border-gray-200 bg-white shadow-sm p-5">

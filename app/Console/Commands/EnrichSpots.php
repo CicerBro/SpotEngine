@@ -75,6 +75,8 @@ class EnrichSpots extends Command
 
             $headResults = $nntp->headParallel($messageIds, showProgress: false);
 
+            $upsertRows = [];
+
             foreach ($headResults as $messageId => $headers) {
                 /** @var Spot|null $spot */
                 $spot = $spotsByMessageId->get((string) $messageId);
@@ -88,7 +90,11 @@ class EnrichSpots extends Command
                     Log::debug('spot:enrich HEAD failed', ['message_id' => $messageId]);
 
                     // Mark as attempted so this spot isn't retried forever.
-                    $spot->update(['xml_signature' => '']);
+                    $upsertRows[] = [
+                        'id' => $spot->id,
+                        'message_id' => $spot->message_id,
+                        'xml_signature' => '',
+                    ];
 
                     continue;
                 }
@@ -103,17 +109,26 @@ class EnrichSpots extends Command
                     ? $signer->verify($xmlContent, $xmlSignature, $userKey)
                     : false;
 
-                $spot->update([
+                $upsertRows[] = [
+                    'id' => $spot->id,
+                    'message_id' => $spot->message_id,
                     'description' => $parsed['description'] ?? null,
-                    'nzb_segments' => $parsed['nzb_segments'] ?? [],
+                    'nzb_segments' => json_encode($parsed['nzb_segments'] ?? []) ?: '[]',
                     'image_segment' => $parsed['image_segment'] ?? null,
                     'website' => $parsed['website'] ?? null,
                     'xml_signature' => $parsed['xml_signature'] ?? '',
                     'poster_key_id' => $parsed['poster_key_id'] ?? null,
                     'is_verified' => $isVerified,
-                ]);
+                ];
 
                 $enriched++;
+            }
+
+            if ($upsertRows !== []) {
+                Spot::upsert($upsertRows, ['id'], [
+                    'description', 'nzb_segments', 'image_segment', 'website',
+                    'xml_signature', 'poster_key_id', 'is_verified',
+                ]);
             }
 
             $this->line("  {$enriched} enriched, {$failed} failed…");
