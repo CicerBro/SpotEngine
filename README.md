@@ -173,10 +173,19 @@ Authenticate with `?apikey=YOUR_KEY`. API keys are shown on your profile page.
 ## Testing
 
 ```bash
-php artisan test
+composer test
 ```
 
+Use `composer test` instead of calling `php artisan test` directly. The Composer script clears config cache first, then runs tests, which prevents stale cached config from pointing at your development database.
+
 Tests run against a dedicated `spotengine_test` PostgreSQL database with `RefreshDatabase`.
+
+If you need to run Artisan directly, clear config first:
+
+```bash
+php artisan config:clear
+php artisan test
+```
 
 ## Static Analysis
 
