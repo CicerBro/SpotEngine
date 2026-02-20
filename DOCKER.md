@@ -143,6 +143,15 @@ This keeps infrastructure from `compose.yml` and replaces the app build with `do
 
 In this mode, frontend assets are built in the image during Docker build (`bun run build` in a Bun build stage).
 
+### Cache Bind Mounts (NZB and Images)
+
+In production mode, the NZB and image caches are bind-mounted separately from the host into the container:
+
+- `./storage/app/cache/nzb` → `/app/storage/app/cache/nzb`
+- `./storage/app/cache/images` → `/app/storage/app/cache/images`
+
+This keeps cached files outside the image, persistent across container rebuilds, and accessible on the host. Create the directories before first run if needed: `mkdir -p storage/app/cache/nzb storage/app/cache/images`.
+
 Ensure your `.env` contains a non-empty `APP_KEY` before first run.
 
 Generate one if needed:
@@ -203,3 +212,5 @@ docker compose exec app php artisan optimize:clear
 docker compose down
 docker compose down -v
 ```
+
+With production compose, the cache lives in `./storage/app/cache/nzb` and `./storage/app/cache/images` on the host (bind mounts), so it persists regardless of `docker compose down -v`.

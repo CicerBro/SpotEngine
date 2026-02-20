@@ -16,4 +16,6 @@ storage/logs
 storage/framework/cache
 storage/framework/sessions
 storage/framework/views
+# prod only: exclude host cache so bind mount provides it at runtime
+storage/app/cache
 coverage
