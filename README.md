@@ -68,7 +68,7 @@ That runs the same stack (queue, Pail, Vite) but serves the app via `php artisan
 **When using Octane:**
 
 - Keep sessions in `database` or `redis` (not `file`).
-- Optionally set `CACHE_STORE=octane` in `.env` for in-memory cache; otherwise your existing cache driver is fine.
+- Optionally set `CACHE_STORE=octane` in `.env` for in-memory cache; otherwise your existing cache driver is fine. Octane as a cache store does not work with FrankenPHP, only Swoole or OpenSwoole. By default this project uses FrankenPHP.
 - Optional env: `OCTANE_SERVER` (default `frankenphp`), `OCTANE_HTTPS` for generated URLs.
 
 ## Configuration
