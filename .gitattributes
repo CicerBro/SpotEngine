@@ -5,6 +5,7 @@
 *.html diff=html
 *.md diff=markdown
 *.php diff=php
+Dockerfile.prod linguist-language=Dockerfile
 
 /.github export-ignore
 CHANGELOG.md export-ignore
