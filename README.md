@@ -2,8 +2,6 @@
 
 A modern Spotnet web client built on Laravel 12 with PostgreSQL and Newznab compatible API.
 
-> **Note:** Work is ongoing and this project is not finished or ready for production yet.
-
 ## Why SpotEngine?
 
 [Spotweb](https://github.com/spotweb/spotweb) is a great piece of software, but years of incremental development have made the codebase increasingly difficult to work with. It carries legacy PHP patterns, a complex data model, and performance trade-offs that were fine at the time but show their age today.
@@ -14,7 +12,7 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 - **Laravel 12**: modern conventions, first-class tooling, expressive APIs. Optionally with Laravel Octane and FrankenPHP for even better performance.
 - **PostgreSQL**: JSONB with GIN indexes for subcategory filtering, `tsvector`/`tsquery` full-text search with a single GIN index across title and description, and a descending index on `spot_posted_at` for fast listing queries
 - **Newznab-compatible API**: Can be used with tools like Sonarr, Radarr, and similar automation software.
-- **Extensible search**: `SearchDriver` contract with a `DatabaseSearchDriver` (uses PostgreSQL FTS) and a `ManticoreSearchDriver` stub. Currently Manticore is a work in progress.
+- **Extensible search**: `SearchDriver` contract with a `DatabaseSearchDriver` (uses PostgreSQL FTS) and a `ManticoreSearchDriver` stub. Currently Manticore is a work in progress. For very busy applications with a lot of API traffic, Manticore is the preferred driver.
 - **Redis caching**: categories cached in Redis, NZB/image files cached to disk with a configurable pruning schedule
 - **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval. Initial full scan can be done in under 5 minutes on an Apple M1 Pro.
 - **Two-phase spot retrieval**: Initial scan uses XOVER for fast bulk indexing — the app is usable right away. Enrichment fills in the rest via HEAD requests in the background. See [Spot Retrieval](#spot-retrieval) for details.
@@ -144,7 +142,7 @@ Once the initial scan and enrichment are done, `spot:retrieve` runs on a schedul
 
 ## Scheduling
 
-**Important:** Run the initial scan (and optionally enrichment) *before* setting up the task scheduler. If you add the cron entry first, the scheduled `spot:retrieve` and your manual initial scan will compete — only one can run at a time, so the scheduler will keep skipping until the scan finishes. Do the initial setup first, then add the cron.
+**Important:** Run the initial scan (and optionally enrichment) _before_ setting up the task scheduler. If you add the cron entry first, the scheduled `spot:retrieve` and your manual initial scan will compete — only one can run at a time, so the scheduler will keep skipping until the scan finishes. Do the initial setup first, then add the cron.
 
 SpotEngine uses [Laravel's task scheduler](https://laravel.com/docs/12.x/scheduling#running-the-scheduler) for incremental spot retrieval and cache maintenance. To activate it, add a single cron entry on your server:
 
