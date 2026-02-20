@@ -50,15 +50,28 @@ class AdminController extends Controller
                 'total_users' => User::query()->count(),
                 'category_stats' => $categoryStats,
             ],
-            'latestSpots' => Spot::query()->orderBy('spot_posted_at', 'desc')->limit(10)->get(),
             'usenetState' => UsenetState::all(),
         ]);
     }
 
-    public function users(): View
+    public function users(Request $request): View
     {
+        $users = User::query()
+            ->when($request->filled('search'), function ($q) use ($request): void {
+                $term = '%'.$request->search.'%';
+                $q->where(fn ($q) => $q
+                    ->where('username', 'ilike', $term)
+                    ->orWhere('email', 'ilike', $term)
+                    ->orWhere('api_token', 'ilike', $term)
+                );
+            })
+            ->latest()
+            ->paginate(25)
+            ->withQueryString();
+
         return view('admin.users', [
-            'users' => User::query()->latest()->get(),
+            'users' => $users,
+            'search' => $request->search,
         ]);
     }
 

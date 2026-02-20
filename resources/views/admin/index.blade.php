@@ -5,6 +5,8 @@
 @section('content')
 <div class="space-y-6 p-4">
 
+    @include('partials.admin-nav')
+
     <header class="rounded-xl border border-gray-200 bg-white shadow-sm p-5">
         <h1 class="text-2xl font-semibold tracking-tight text-gray-900">Admin Dashboard</h1>
         <p class="mt-1 text-sm text-gray-500">Monitor overview metrics and clean up old spots.</p>

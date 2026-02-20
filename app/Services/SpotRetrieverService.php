@@ -318,10 +318,17 @@ class SpotRetrieverService
             return;
         }
 
+        $targetIds = array_column($commands, 'target_message_id');
+        $spots = Spot::query()
+            ->whereIn('message_id', $targetIds)
+            ->get()
+            ->keyBy('message_id');
+
+        $deleteIds = [];
+
         foreach ($commands as $cmd) {
             $targetId = $cmd['target_message_id'];
-
-            $spot = Spot::query()->where('message_id', $targetId)->first();
+            $spot = $spots->get($targetId);
 
             if (! ($spot instanceof Spot)) {
                 Log::info('NUKE: target not in database', [
@@ -353,7 +360,11 @@ class SpotRetrieverService
                 'moderator' => $cmd['poster'],
             ]);
 
-            $spot->delete();
+            $deleteIds[] = $spot->id;
+        }
+
+        if ($deleteIds !== []) {
+            Spot::query()->whereIn('id', $deleteIds)->delete();
         }
     }
 

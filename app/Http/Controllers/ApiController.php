@@ -7,8 +7,7 @@ namespace App\Http\Controllers;
 use App\Enums\SearchField;
 use App\Models\Spot;
 use App\Models\User;
-use App\Services\Nntp\NntpService;
-use App\Services\Nntp\NzbGenerator;
+use App\Services\NzbDownloadService;
 use App\Services\Search\Contracts\SearchDriver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -18,7 +17,7 @@ use Illuminate\Http\Response;
  */
 class ApiController extends Controller
 {
-    public function __construct(private readonly NntpService $nntpService) {}
+    public function __construct(private readonly NzbDownloadService $nzbService) {}
 
     public function handle(Request $request): Response
     {
@@ -179,32 +178,11 @@ class ApiController extends Controller
         $this->requireUser();
 
         $spot = Spot::findOrFail((int) $request->input('id'));
-
-        abort_if(empty($spot->nzb_segments), 404, 'No NZB data available.');
-
-        $cachePath = config('spotengine.cache.nzb_path').DIRECTORY_SEPARATOR.md5('nzb.'.$spot->id).'.nzb';
-
-        $nzb = file_exists($cachePath) ? file_get_contents($cachePath) : false;
-
-        if ($nzb === false) {
-            $config = $this->nntpService->getConfig();
-            $nntp = $this->nntpService->makeDriver(driver: 'single');
-            $nntp->connect();
-
-            $generator = new NzbGenerator($nntp);
-            $nzb = $generator->fetchNzb($spot->nzb_segments, $config['groups']['nzb'] ?? $config['groups']['spots']);
-            $nntp->quit();
-
-            @mkdir(dirname($cachePath), 0755, true);
-            file_put_contents($cachePath, $nzb);
-        }
-
-        $filename = preg_replace('/[^a-zA-Z0-9_\-.]/', '_', (string) $spot->title);
-        $filename = substr((string) $filename, 0, 100).'.nzb';
+        $nzb = $this->nzbService->fetchNzb($spot);
 
         return response($nzb, 200, [
             'Content-Type' => 'application/x-nzb',
-            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
+            'Content-Disposition' => 'attachment; filename="'.$this->nzbService->filename($spot).'"',
             'X-DNZB-Name' => $spot->title,
             'Cache-Control' => 'public, max-age=86400',
         ]);
