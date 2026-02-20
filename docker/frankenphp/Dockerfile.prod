@@ -1,4 +1,15 @@
-FROM dunglas/frankenphp:latest
+FROM oven/bun:1 AS assets
+
+WORKDIR /app
+
+COPY package.json bun.lock vite.config.js ./
+COPY resources ./resources
+COPY public ./public
+
+RUN bun install --frozen-lockfile
+RUN bun run build
+
+FROM dunglas/frankenphp:1-php8.5
 
 WORKDIR /app
 
@@ -28,6 +39,7 @@ RUN composer install \
     --no-scripts
 
 COPY . .
+COPY --from=assets /app/public/build /app/public/build
 
 RUN rm -f .env \
     && mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
