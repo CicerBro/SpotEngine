@@ -614,18 +614,21 @@ class ParallelNntpDriver implements NntpDriverInterface
      * (EOF or timeout) are immediately replaced with fresh connections so the pool
      * size stays stable throughout the batch.
      *
-     * @param  array<int>  $articleNumbers
+     * @param  array<int|string>  $articles  Article numbers (int) or message-IDs (string, without angle brackets)
      * @param  callable(?array<string,string>): void|null  $onArticle  Optional callback invoked for each
      *                                                                 completed article (headers array or null on failure). When provided the method returns []
      *                                                                 and never accumulates headers in memory, keeping peak usage proportional to connection
      *                                                                 count rather than batch size.
-     * @return array<int, array<string, string>|null> Article number => headers (empty when $onArticle provided)
+     * @return array<int|string, array<string, string>|null> Article number/message-ID => headers (empty when $onArticle provided)
      */
-    public function headParallel(array $articleNumbers, bool $showProgress = true, ?callable $onArticle = null): array
+    public function headParallel(array $articles, bool $showProgress = true, ?callable $onArticle = null): array
     {
-        if ($articleNumbers === []) {
+        if ($articles === []) {
             return [];
         }
+
+        // Format an article number or message-ID into the string sent to the server.
+        $headCmd = static fn (int|string $id): string => is_int($id) ? "HEAD $id\r\n" : "HEAD <$id>\r\n";
 
         foreach ($this->sockets as $socket) {
             stream_set_blocking($socket, false);
@@ -638,11 +641,11 @@ class ParallelNntpDriver implements NntpDriverInterface
             $socketIdToIdx[(int) $socket] = $idx;
         }
 
-        /** @var \SplQueue<int> */
+        /** @var \SplQueue<int|string> */
         $queue = new \SplQueue;
 
-        foreach ($articleNumbers as $num) {
-            $queue->enqueue($num);
+        foreach ($articles as $id) {
+            $queue->enqueue($id);
         }
 
         $total = $queue->count();
@@ -652,10 +655,10 @@ class ParallelNntpDriver implements NntpDriverInterface
         $results = [];
 
         $record = $onArticle !== null
-            ? static function (int $num, ?array $headers) use ($onArticle): void {
+            ? static function (int|string $num, ?array $headers) use ($onArticle): void {
                 $onArticle($headers);
             }
-        : static function (int $num, ?array $headers) use (&$results): void {
+        : static function (int|string $num, ?array $headers) use (&$results): void {
             $results[$num] = $headers;
         };
 
@@ -666,7 +669,7 @@ class ParallelNntpDriver implements NntpDriverInterface
 
         // Replaces a dead socket slot with a fresh connection, then dispatches
         // the next article onto it. Keeps the pool size stable over long batches.
-        $replaceSocket = function (int $deadIdx) use (&$socketIdToIdx, &$pending, &$buffers, &$states, &$deadlines, $queue): void {
+        $replaceSocket = function (int $deadIdx) use (&$socketIdToIdx, &$pending, &$buffers, &$states, &$deadlines, $queue, $headCmd): void {
             unset($this->sockets[$deadIdx]);
 
             $newSocket = $this->reconnectOne();
@@ -686,7 +689,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                 $buffers[$newIdx] = '';
                 $states[$newIdx] = ['status' => 'wait_response', 'headers' => [], 'currentHeader' => '', 'currentValue' => ''];
                 $deadlines[$newIdx] = microtime(true) + 3.0;
-                fwrite($newSocket, "HEAD $next\r\n");
+                fwrite($newSocket, $headCmd($next));
             }
         };
 
@@ -700,7 +703,7 @@ class ParallelNntpDriver implements NntpDriverInterface
             $buffers[$idx] = '';
             $states[$idx] = ['status' => 'wait_response', 'headers' => [], 'currentHeader' => '', 'currentValue' => ''];
             $deadlines[$idx] = microtime(true) + 3.0;
-            fwrite($socket, "HEAD $articleNum\r\n");
+            fwrite($socket, $headCmd($articleNum));
         }
 
         while ($pending !== []) {
@@ -805,18 +808,24 @@ class ParallelNntpDriver implements NntpDriverInterface
                     if ($colonPos !== false) {
                         $name = strtolower(substr($line, 0, $colonPos));
 
-                        // Flush the previous header before switching.
-                        if ($states[$idx]['currentHeader'] !== '') {
-                            $states[$idx]['headers'][$states[$idx]['currentHeader']] = $this->decodeHeader($states[$idx]['currentValue']);
-                        }
-
-                        // Only track headers that SpotParser actually reads.
-                        if (isset(self::WANTED_HEADERS[$name])) {
-                            $states[$idx]['currentHeader'] = $name;
-                            $states[$idx]['currentValue'] = ltrim(substr($line, $colonPos + 1));
+                        if ($name === $states[$idx]['currentHeader']) {
+                            // Spotnet splits long headers (X-XML) by repeating the header
+                            // name on each continuation line. Concatenate without separator.
+                            $states[$idx]['currentValue'] .= ltrim(substr($line, $colonPos + 1));
                         } else {
-                            $states[$idx]['currentHeader'] = '';
-                            $states[$idx]['currentValue'] = '';
+                            // Flush the previous header before switching to a new one.
+                            if ($states[$idx]['currentHeader'] !== '') {
+                                $states[$idx]['headers'][$states[$idx]['currentHeader']] = $this->decodeHeader($states[$idx]['currentValue']);
+                            }
+
+                            // Only track headers that SpotParser actually reads.
+                            if (isset(self::WANTED_HEADERS[$name])) {
+                                $states[$idx]['currentHeader'] = $name;
+                                $states[$idx]['currentValue'] = ltrim(substr($line, $colonPos + 1));
+                            } else {
+                                $states[$idx]['currentHeader'] = '';
+                                $states[$idx]['currentValue'] = '';
+                            }
                         }
                     }
                 }
@@ -849,6 +858,9 @@ class ParallelNntpDriver implements NntpDriverInterface
      * @param  \SplQueue<int>  $queue
      * @param  resource  $socket
      */
+    /**
+     * @param  \SplQueue<int|string>  $queue
+     */
     private function headDispatchNext(
         int $idx,
         mixed $socket,
@@ -877,7 +889,8 @@ class ParallelNntpDriver implements NntpDriverInterface
             $pending[$idx] = $next;
             $states[$idx] = ['status' => 'wait_response', 'headers' => [], 'currentHeader' => '', 'currentValue' => ''];
             $deadlines[$idx] = microtime(true) + 3.0;
-            fwrite($socket, "HEAD $next\r\n");
+            $headId = is_int($next) ? (string) $next : "<$next>";
+            fwrite($socket, "HEAD $headId\r\n");
         } else {
             unset($pending[$idx], $deadlines[$idx]);
         }

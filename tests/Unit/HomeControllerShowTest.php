@@ -13,22 +13,23 @@ afterEach(function () {
 
 test('show uses cached categories to resolve subcategory names', function () {
     Cache::put('categories.all', collect([
-        new Category(['code' => 'z1', 'name' => 'Movies']),
-        new Category(['code' => 'z2', 'name' => 'HD']),
-        new Category(['code' => 'z3', 'name' => '-']),
+        new Category(['code' => '01z01', 'name' => 'Series', 'type' => 'type']),
+        new Category(['code' => '01z02', 'name' => 'Book', 'type' => 'type']),
+        new Category(['code' => '01z03', 'name' => '-', 'type' => 'type']),
     ]));
 
     $spot = new Spot([
         'subcategories' => ['z1', 'z2', 'z3', 'z9'],
-        'category_code' => '0',
+        'category_code' => '01',
     ]);
     $spot->setRelation('category', null);
 
     $view = app(HomeController::class)->show($spot);
 
     expect($view->getData()['subcategoryNames']->all())->toBe([
-        'z1' => 'Movies',
-        'z2' => 'HD',
+        'z1' => 'Series',
+        'z2' => 'Book',
         'z9' => 'z9',
     ]);
+    expect($view->getData()['badgeLabel'])->toBe('Series');
 });

@@ -178,7 +178,7 @@ class Spot extends Model
 
         foreach ($preferredTypes as $preferredType) {
             foreach ($subcatCodes as $subcatCode) {
-                $candidate = $categoriesByCode->get($subcatCode);
+                $candidate = $this->resolveSubcategory($categoriesByCode, $subcatCode);
                 if ($candidate && $candidate->type === $preferredType && $candidate->name !== '-') {
                     return $candidate;
                 }
@@ -196,13 +196,73 @@ class Spot extends Model
     public function resolveGenreLabel(Collection $categoriesByCode): ?string
     {
         foreach ($this->subcategories ?? [] as $subcatCode) {
-            $candidate = $categoriesByCode->get($subcatCode);
+            $candidate = $this->resolveSubcategory($categoriesByCode, $subcatCode);
             if ($candidate && $candidate->type === 'genre' && $candidate->name !== '-') {
                 return $candidate->name;
             }
         }
 
         return null;
+    }
+
+    /**
+     * Resolve a subcategory using both canonical (01a09) and legacy short (a9) code formats.
+     *
+     * @param  Collection<string, Category>  $categoriesByCode
+     */
+    public function resolveSubcategory(Collection $categoriesByCode, string $subcategoryCode): ?Category
+    {
+        foreach ($this->subcategoryLookupCodes($subcategoryCode) as $lookupCode) {
+            $candidate = $categoriesByCode->get($lookupCode);
+
+            if ($candidate instanceof Category) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Build lookup candidates for a subcategory code in both storage formats.
+     *
+     * @return list<string>
+     */
+    private function subcategoryLookupCodes(string $subcategoryCode): array
+    {
+        $normalizedCode = strtolower(trim($subcategoryCode));
+
+        if ($normalizedCode === '') {
+            return [];
+        }
+
+        $lookupCodes = [$normalizedCode];
+
+        if (preg_match('/^([a-z])(\d{1,2})$/', $normalizedCode, $matches) === 1) {
+            $lookupCodes[] = $this->rootCategoryCode().$matches[1].sprintf('%02d', (int) $matches[2]);
+        }
+
+        if (preg_match('/^(\d{2})([a-z])(\d{1,2})$/', $normalizedCode, $matches) === 1) {
+            $lookupCodes[] = $matches[1].$matches[2].sprintf('%02d', (int) $matches[3]);
+        }
+
+        return array_values(array_unique($lookupCodes));
+    }
+
+    /**
+     * Resolve the two-digit head category code used as the canonical subcategory prefix.
+     */
+    private function rootCategoryCode(): string
+    {
+        if (preg_match('/^(\d{2})/', $this->category_code, $matches) === 1) {
+            return $matches[1];
+        }
+
+        if (preg_match('/^(\d)$/', $this->category_code, $matches) === 1) {
+            return str_pad($matches[1], 2, '0', STR_PAD_LEFT);
+        }
+
+        return '01';
     }
 
     public function getDescriptionHtmlAttribute(): string

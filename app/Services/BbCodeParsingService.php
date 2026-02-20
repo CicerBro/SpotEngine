@@ -352,7 +352,7 @@ class BbCodeParsingService
                 return ['html' => $this->escape('['.$tagContent.']'.substr($input, $afterBracket, $closePos - $afterBracket).'[/img]'), 'next' => $closePos + 6];
             }
 
-            $html = '<a href="'.$this->escapeAttr($href).'" rel="noopener noreferrer nofollow" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 text-xs border border-gray-600">';
+            $html = '<a href="'.$this->escapeAttr($href).'" rel="noopener noreferrer nofollow" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-200 text-white hover:bg-gray-600 text-xs border border-gray-400">';
             $html .= '<span aria-hidden="true">🖼</span> View image';
             $html .= '</a>';
 

@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
 
 test('parseXml clears libxml errors for invalid xml payloads', function () {
@@ -106,6 +107,92 @@ test('parseFromOverview returns null for non-spotnet articles', function () {
     ]))->toBeNull();
 });
 
+test('parseFromOverview returns moderation array for keyid-2 delete command', function () {
+    $parser = new SpotParser;
+
+    // keyid=2 in From header (second char of field0), command in Subject
+    $overview = [
+        'from' => 'Moderator <key@12a0.0.0.1700100000.0.NL.Sig>',
+        'subject' => 'delete jK01nt6aOvYFJuXaQIolG@spot.net',
+        'date' => 'Wed, 19 Feb 2026 10:00:00 +0000',
+        'message_id' => 'mod-article@spot.net',
+    ];
+
+    $result = $parser->parseFromOverview($overview);
+
+    expect($result)->not->toBeNull();
+    expect($result['_moderation'])->toBeTrue();
+    expect($result['command'])->toBe('delete');
+    expect($result['target_message_id'])->toBe('jK01nt6aOvYFJuXaQIolG@spot.net');
+    expect($result['poster'])->toBe('Moderator');
+});
+
+test('parseFromOverview returns moderation array for dispose and remove commands', function () {
+    $parser = new SpotParser;
+
+    foreach (['dispose', 'remove'] as $command) {
+        $overview = [
+            'from' => 'Mod <key@12.0.0.1700100000.0.NL.S>',
+            'subject' => "{$command} target-msgid@spot.net",
+            'date' => 'Wed, 19 Feb 2026 10:00:00 +0000',
+            'message_id' => 'mod@spot.net',
+        ];
+
+        $result = $parser->parseFromOverview($overview);
+
+        expect($result)->not->toBeNull();
+        expect($result['_moderation'])->toBeTrue();
+        expect($result['command'])->toBe($command);
+        expect($result['target_message_id'])->toBe('target-msgid@spot.net');
+    }
+});
+
+test('parseFromOverview strips angle brackets from moderation target message id', function () {
+    $parser = new SpotParser;
+
+    $overview = [
+        'from' => 'Mod <key@12.0.0.1700100000.0.NL.S>',
+        'subject' => 'delete <jK01nt6aOvYFJuXaQIolG@spot.net>',
+        'date' => 'Wed, 19 Feb 2026 10:00:00 +0000',
+        'message_id' => 'mod@spot.net',
+    ];
+
+    $result = $parser->parseFromOverview($overview);
+
+    expect($result)->not->toBeNull();
+    expect($result['_moderation'])->toBeTrue();
+    expect($result['target_message_id'])->toBe('jK01nt6aOvYFJuXaQIolG@spot.net');
+});
+
+test('parseFromOverview skips DISPOSE continuation articles for non-keyid-2', function () {
+    $parser = new SpotParser;
+
+    // keyid=7 (not 2), DISPOSE in Subject — multi-part continuation, not moderation
+    $overview = [
+        'from' => 'User <key@17a0.0.0.1700100000.0.NL.S>',
+        'subject' => 'DISPOSE asHskHinM1IOpiXaQJNQX@spot.net - Hieringbiete-Konzèr 2026',
+        'date' => 'Wed, 19 Feb 2026 10:00:00 +0000',
+        'message_id' => 'disposal@spot.net',
+    ];
+
+    expect($parser->parseFromOverview($overview))->toBeNull();
+});
+
+test('SigningService returns false for empty inputs', function () {
+    $signer = new SigningService;
+
+    expect($signer->verify('', 'sig', 'key'))->toBeFalse();
+    expect($signer->verify('xml', '', 'key'))->toBeFalse();
+    expect($signer->verify('xml', 'sig', ''))->toBeFalse();
+});
+
+test('SigningService returns false for malformed public key xml', function () {
+    $signer = new SigningService;
+
+    expect($signer->verify('<Spot/>', base64_encode('fakesig'), '<BadXml/>'))->toBeFalse();
+    expect($signer->verify('<Spot/>', base64_encode('fakesig'), '<RSAKeyValue><Modulus>AAAA</Modulus></RSAKeyValue>'))->toBeFalse();
+});
+
 test('parseFromOverview parses subcategories from From header', function () {
     $parser = new SpotParser;
 
@@ -120,9 +207,9 @@ test('parseFromOverview parses subcategories from From header', function () {
     $spot = $parser->parseFromOverview($overview);
 
     expect($spot)->not->toBeNull();
-    expect($spot['subcategories'])->toContain('a11');
-    expect($spot['subcategories'])->toContain('b3');
-    expect($spot['subcategories'])->toContain('c4');
-    expect($spot['subcategories'])->toContain('d44');
-    expect($spot['subcategories'])->toContain('z2');
+    expect($spot['subcategories'])->toContain('01a11');
+    expect($spot['subcategories'])->toContain('01b03');
+    expect($spot['subcategories'])->toContain('01c04');
+    expect($spot['subcategories'])->toContain('01d44');
+    expect($spot['subcategories'])->toContain('01z02');
 });

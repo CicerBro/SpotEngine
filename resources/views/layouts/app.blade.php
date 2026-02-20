@@ -13,7 +13,7 @@
       x-data="{ sidebarOpen: false }"
       @keydown.escape.window="sidebarOpen = false">
 
-    @include('partials.topbar')
+    @include('partials.navbar')
 
     <div class="flex h-full pt-[52px]">
         @include('partials.sidebar')

@@ -188,7 +188,7 @@ class ApiController extends Controller
 
         if ($nzb === false) {
             $config = $this->nntpService->getConfig();
-            $nntp = $this->nntpService->makeClient();
+            $nntp = $this->nntpService->makeDriver(driver: 'single');
             $nntp->connect();
 
             $generator = new NzbGenerator($nntp);

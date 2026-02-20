@@ -12,27 +12,23 @@ class NntpService
     public function __construct(private readonly array $config) {}
 
     /**
-     * Create a parallel NNTP driver instance based on the configured driver.
+     * Create an NNTP driver instance.
      *
-     * @param  int|null  $connections  Override the configured connection count.
+     * @param  int|null  $connections  Override the configured connection count (parallel driver only).
+     * @param  string|null  $driver  Override the configured driver ('parallel' or 'single').
+     *                               Defaults to the 'nntp.driver' config value.
+     * @return ($driver is 'single' ? SingleNntpDriver : NntpDriverInterface)
      */
-    public function makeDriver(?int $connections = null): NntpDriverInterface
+    public function makeDriver(?int $connections = null, ?string $driver = null): NntpDriverInterface
     {
+        $driverType = $driver ?? ($this->config['driver'] ?? 'parallel');
         $numConnections = $connections ?? $this->config['connections'];
 
-        return match ($this->config['driver'] ?? 'parallel') {
+        return match ($driverType) {
             'parallel' => new ParallelNntpDriver($this->config, $numConnections),
             'single' => SingleNntpDriver::fromConfig($this->config),
-            default => throw new \InvalidArgumentException("Unknown NNTP driver: {$this->config['driver']}"),
+            default => throw new \InvalidArgumentException("Unknown NNTP driver: {$driverType}"),
         };
-    }
-
-    /**
-     * Create a single-connection NNTP client for serial operations (BODY, NZB retrieval).
-     */
-    public function makeClient(): SingleNntpDriver
-    {
-        return SingleNntpDriver::fromConfig($this->config);
     }
 
     /** @return array<string, mixed> */
