@@ -144,6 +144,8 @@ Once the initial scan and enrichment are done, `spot:retrieve` runs on a schedul
 
 ## Scheduling
 
+**Important:** Run the initial scan (and optionally enrichment) *before* setting up the task scheduler. If you add the cron entry first, the scheduled `spot:retrieve` and your manual initial scan will compete — only one can run at a time, so the scheduler will keep skipping until the scan finishes. Do the initial setup first, then add the cron.
+
 SpotEngine uses [Laravel's task scheduler](https://laravel.com/docs/12.x/scheduling#running-the-scheduler) for incremental spot retrieval and cache maintenance. To activate it, add a single cron entry on your server:
 
 ```

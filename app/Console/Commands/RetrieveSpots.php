@@ -6,9 +6,12 @@ namespace App\Console\Commands;
 
 use App\Services\OverlappedSpotRetrieverService;
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Console\Isolatable;
 
-class RetrieveSpots extends Command
+class RetrieveSpots extends Command implements Isolatable
 {
+    protected $isolated = true;
+
     protected $signature = 'spot:retrieve
                             {--initial-scan : XOVER only — fast bulk index; run spot:enrich afterwards to populate X-XML}
                             {--backfill : Fetch older spots below current position (run repeatedly until complete)}
