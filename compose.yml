@@ -63,8 +63,21 @@ services:
             retries: 5
             start_period: 5s
 
+    vite:
+        image: oven/bun:1
+        working_dir: /app
+        command: sh -lc "bun install && bun run dev --host 0.0.0.0 --port 5173"
+        ports:
+            - "${VITE_PORT:-5173}:5173"
+        volumes:
+            - .:/app
+            - bun_node_modules:/app/node_modules
+        profiles:
+            - vite
+
 volumes:
     caddy_data:
     caddy_config:
     postgres_data:
     redis_data:
+    bun_node_modules:

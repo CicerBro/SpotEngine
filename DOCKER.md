@@ -4,11 +4,22 @@ SpotEngine ships with a Docker Compose setup based on FrankenPHP.
 
 ## Services
 
-- `app`: FrankenPHP + Caddy (classic mode by default)
+- `app`: FrankenPHP + Caddy (classic mode by default, PHP 8.5 image)
 - `db`: PostgreSQL 18
 - `redis`: Redis 7 (default cache backend)
+- `vite`: optional Bun/Vite dev server (HMR)
 
 The app image sets PHP `memory_limit=1G` (CLI and HTTP runtime).
+
+## PHP Version in Docker
+
+Docker images are pinned to `dunglas/frankenphp:1-php8.5`, so both dev and production-like Docker app containers run PHP 8.5.
+
+You can verify at runtime with:
+
+```bash
+docker compose exec app php -v
+```
 
 ## Dev vs Prod
 
@@ -84,6 +95,26 @@ App URL:
 
 - `http://localhost:8000` (or your `APP_PORT`)
 
+### Frontend Assets in Docker Dev
+
+Default `docker compose up` does not start Vite automatically.
+
+Build assets once:
+
+```bash
+docker compose run --rm vite sh -lc "bun install && bun run build"
+```
+
+Run Vite dev server (HMR):
+
+```bash
+docker compose --profile vite up -d vite
+```
+
+Vite URL:
+
+- `http://localhost:5173` (or your `VITE_PORT`)
+
 ## Development Setup with Octane (Worker Mode)
 
 Use the Octane override file:
@@ -109,6 +140,8 @@ docker compose -f compose.yml -f compose.prod.yml up --build -d
 ```
 
 This keeps infrastructure from `compose.yml` and replaces the app build with `docker/frankenphp/Dockerfile.prod`.
+
+In this mode, frontend assets are built in the image during Docker build (`bun run build` in a Bun build stage).
 
 Ensure your `.env` contains a non-empty `APP_KEY` before first run.
 

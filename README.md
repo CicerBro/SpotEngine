@@ -42,6 +42,8 @@ Use Docker Compose with FrankenPHP/PostgreSQL/Redis:
 
 - See [DOCKER.md](DOCKER.md)
 
+Docker images in this repository are pinned to FrankenPHP PHP 8.5 variants.
+
 ## Development
 
 ### How to get started
