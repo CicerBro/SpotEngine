@@ -1,0 +1,36 @@
+FROM dunglas/frankenphp:latest
+
+WORKDIR /app
+
+RUN cp "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini"
+
+RUN install-php-extensions \
+    bcmath \
+    pcntl \
+    pdo_pgsql \
+    pgsql \
+    redis \
+    sockets
+
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+
+COPY docker/frankenphp/Caddyfile /etc/frankenphp/Caddyfile
+COPY docker/frankenphp/conf.d/99-app.ini /usr/local/etc/php/conf.d/99-app.ini
+
+COPY composer.json composer.lock ./
+
+RUN composer install \
+    --no-dev \
+    --no-interaction \
+    --no-progress \
+    --prefer-dist \
+    --optimize-autoloader \
+    --no-scripts
+
+COPY . .
+
+RUN rm -f .env \
+    && mkdir -p storage/framework/cache storage/framework/sessions storage/framework/views storage/logs bootstrap/cache \
+    && chown -R www-data:www-data /app/storage /app/bootstrap/cache
+
+CMD ["frankenphp", "run", "--config", "/etc/frankenphp/Caddyfile"]

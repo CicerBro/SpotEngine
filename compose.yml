@@ -1,32 +1,59 @@
+name: spotengine
+
 services:
-    postgres:
+    app:
+        build:
+            context: .
+            dockerfile: docker/frankenphp/Dockerfile
+        restart: unless-stopped
+        env_file:
+            - .env
+        environment:
+            SERVER_NAME: ${SERVER_NAME:-:80}
+            DB_HOST: db
+            DB_PORT: 5432
+            REDIS_HOST: redis
+            REDIS_PORT: 6379
+        ports:
+            - "${APP_PORT:-8000}:80"
+        volumes:
+            - .:/app
+            - caddy_data:/data
+            - caddy_config:/config
+        depends_on:
+            db:
+                condition: service_healthy
+
+    db:
         image: postgres:18
-        container_name: postgres
         restart: unless-stopped
         environment:
-            POSTGRES_DB: app
-            POSTGRES_USER: app
-            POSTGRES_PASSWORD: secret
+            POSTGRES_DB: ${DB_DATABASE:-spotengine}
+            POSTGRES_USER: ${DB_USERNAME:-spotengine}
+            POSTGRES_PASSWORD: ${DB_PASSWORD:-spotengine}
         ports:
-            - "5432:5432"
+            - "${FORWARD_DB_PORT:-5432}:5432"
         volumes:
-            - postgres_data:/var/lib/postgresql
+            - postgres_data:/var/lib/postgresql/data
         healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U app"]
+            test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-spotengine} -d ${DB_DATABASE:-spotengine}"]
             interval: 10s
             timeout: 5s
             retries: 5
+            start_period: 5s
 
     redis:
         image: redis:7
-        container_name: redis
         restart: unless-stopped
-        command: >
-            redis-server
-            --appendonly yes
-            --save 60 1000
+        command:
+            - redis-server
+            - --appendonly
+            - "yes"
+            - --save
+            - "60"
+            - "1000"
         ports:
-            - "6379:6379"
+            - "${FORWARD_REDIS_PORT:-6379}:6379"
         volumes:
             - redis_data:/data
         healthcheck:
@@ -34,7 +61,10 @@ services:
             interval: 10s
             timeout: 5s
             retries: 5
+            start_period: 5s
 
 volumes:
+    caddy_data:
+    caddy_config:
     postgres_data:
     redis_data:
