@@ -32,6 +32,7 @@
                     <th class="border-b border-gray-100 px-4 py-2 font-semibold">Username</th>
                     <th class="border-b border-gray-100 px-4 py-2 font-semibold">Email</th>
                     <th class="border-b border-gray-100 px-4 py-2 font-semibold">Admin</th>
+                    <th class="border-b border-gray-100 px-4 py-2 font-semibold">Signed up</th>
                     <th class="border-b border-gray-100 px-4 py-2 font-semibold">Last login</th>
                     <th class="border-b border-gray-100 px-4 py-2 font-semibold"></th>
                 </tr>
@@ -46,7 +47,8 @@
                                 <span class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-200">Admin</span>
                             @endif
                         </td>
-                        <td class="px-4 py-2 text-xs text-gray-400">{{ $user->last_login_at?->diffForHumans() ?? 'Never' }}</td>
+                        <td class="px-4 py-2 text-xs text-gray-400">{{ $user->created_at->format('M j, Y') }}</td>
+                        <td class="px-4 py-2 text-xs text-gray-400">{{ $user->last_login_at ? $user->last_login_at->format('M j, Y') . ' (' . $user->last_login_at->diffForHumans() . ')' : 'Never' }}</td>
                         <td class="px-4 py-2 text-right">
                             @unless($user->is(auth()->user()))
                                 <form method="POST" action="{{ route('admin.users.delete', $user) }}">
