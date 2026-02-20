@@ -18,6 +18,22 @@ if (! function_exists('log_debug')) {
     }
 }
 
+if (! function_exists('nestedCachePath')) {
+    /**
+     * Build a nested cache path using the first two hex characters of the hash.
+     *
+     * Pattern: {basePath}/{first_char}/{second_char}/{full_hash}.{ext}
+     * This creates 16 L1 dirs x 16 L2 dirs = 256 leaf directories.
+     */
+    function nestedCachePath(string $basePath, string $hash, string $extension): string
+    {
+        return $basePath
+            .DIRECTORY_SEPARATOR.$hash[0]
+            .DIRECTORY_SEPARATOR.$hash[1]
+            .DIRECTORY_SEPARATOR.$hash.'.'.$extension;
+    }
+}
+
 if (! function_exists('formatBytes')) {
     function formatBytes(int|float|string $size, int $decimals = 2, bool $roundUp = false): string
     {

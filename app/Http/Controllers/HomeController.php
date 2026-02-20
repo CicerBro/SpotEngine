@@ -104,7 +104,11 @@ class HomeController extends Controller
             return $this->placeholderImageResponse('No Image');
         }
 
-        $cachePath = config('spotengine.cache.image_path').DIRECTORY_SEPARATOR.md5((string) $spot->image_segment).'.img';
+        $cachePath = nestedCachePath(
+            (string) config('spotengine.cache.image_path'),
+            md5((string) $spot->image_segment),
+            'img',
+        );
 
         if (file_exists($cachePath)) {
             $imageData = file_get_contents($cachePath);

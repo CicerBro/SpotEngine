@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Spot;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\NzbGenerator;
+use App\Services\Nntp\SingleNntpDriver;
 
 class NzbDownloadService
 {
@@ -44,8 +45,7 @@ class NzbDownloadService
         $nntp->connect();
 
         try {
-            $generator = new NzbGenerator($nntp);
-            $nzb = $generator->fetchNzb($spot->nzb_segments, $config['groups']['nzb'] ?? $config['groups']['spots']);
+            $nzb = $this->fetchNzbFromNntp($spot, $nntp, $config);
         } finally {
             try {
                 $nntp->quit();
@@ -54,13 +54,30 @@ class NzbDownloadService
             }
         }
 
-        $dir = dirname($cachePath);
+        $this->writeToCache($cachePath, $nzb);
 
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
+        return $nzb;
+    }
+
+    /**
+     * Fetch NZB using a pre-connected NNTP driver (for batch operations like precaching).
+     */
+    public function fetchNzbWithDriver(Spot $spot, SingleNntpDriver $nntp): string
+    {
+        $cachePath = $this->cachePath($spot);
+
+        if (file_exists($cachePath)) {
+            $nzb = file_get_contents($cachePath);
+
+            if ($nzb !== false) {
+                return $nzb;
+            }
         }
 
-        file_put_contents($cachePath, $nzb, LOCK_EX);
+        $config = $this->nntpService->getConfig();
+        $nzb = $this->fetchNzbFromNntp($spot, $nntp, $config);
+
+        $this->writeToCache($cachePath, $nzb);
 
         return $nzb;
     }
@@ -75,8 +92,36 @@ class NzbDownloadService
         return substr((string) $clean, 0, 100).'.nzb';
     }
 
-    private function cachePath(Spot $spot): string
+    /**
+     * Get the cache file path for a spot's NZB.
+     */
+    public function cachePath(Spot $spot): string
     {
-        return config('spotengine.cache.nzb_path').DIRECTORY_SEPARATOR.md5('nzb.'.$spot->id).'.nzb';
+        return nestedCachePath(
+            (string) config('spotengine.cache.nzb_path'),
+            md5('nzb.'.$spot->id),
+            'nzb',
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    private function fetchNzbFromNntp(Spot $spot, SingleNntpDriver $nntp, array $config): string
+    {
+        $generator = new NzbGenerator($nntp);
+
+        return $generator->fetchNzb($spot->nzb_segments, $config['groups']['nzb'] ?? $config['groups']['spots']);
+    }
+
+    private function writeToCache(string $cachePath, string $data): void
+    {
+        $dir = dirname($cachePath);
+
+        if (! is_dir($dir)) {
+            mkdir($dir, 0755, true);
+        }
+
+        file_put_contents($cachePath, $data, LOCK_EX);
     }
 }
