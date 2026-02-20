@@ -33,7 +33,8 @@ return [
     | Cache (NZB and images)
     |--------------------------------------------------------------------------
     | Local paths and retention: files older than the retention days are
-    | removed by the spot cache prune command.
+    | removed by the spot cache prune command. Set retention to 0 to
+    | disable pruning entirely (useful when pre-caching with spot:precache).
     */
     'cache' => [
         'nzb_retention_days' => (int) env('CACHE_NZB_RETENTION_DAYS', 30),
