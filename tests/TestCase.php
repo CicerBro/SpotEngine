@@ -31,7 +31,8 @@ abstract class TestCase extends BaseTestCase
             $default = $config['database']['default'] ?? 'pgsql';
             $cachedDatabase = $config['database']['connections'][$default]['database'] ?? '';
             if ($cachedDatabase !== 'spotengine_test') {
-                $this->abortWrongDatabase("cached config points at \"{$cachedDatabase}\" — run: php artisan config:clear");
+                $this->abortWrongDatabase("cached config points at \"{$cachedDatabase}\" database instead of \"spotengine_test\" database.
+                \n  Run: \"php artisan config:clear\" or use \"composer test\" instead of \"php artisan test\"");
             }
         }
     }
@@ -39,8 +40,8 @@ abstract class TestCase extends BaseTestCase
     private function abortWrongDatabase(string $reason): never
     {
         throw new \RuntimeException(
-            "Tests would use your application database and wipe data ({$reason}). "
-            .'Use a separate test DB: DB_DATABASE=spotengine_test in phpunit.xml.'
+            "Tests would use your application database and wipe data! \n\n  Reason: ({$reason}). "
+            .'Use a separate test DB: "DB_DATABASE=spotengine_test" in phpunit.xml.'
         );
     }
 }
