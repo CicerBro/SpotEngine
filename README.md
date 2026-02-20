@@ -34,6 +34,12 @@ composer run setup
 
 This installs dependencies, generates an application key, runs migrations, and builds frontend assets.
 
+## Docker
+
+Use Docker Compose with FrankenPHP/PostgreSQL/Redis:
+
+- See [DOCKER.md](DOCKER.md)
+
 ## Development
 
 ### How to get started
@@ -63,7 +69,7 @@ To use Octane with FrankenPHP for higher throughput (app kept in memory between 
 composer run dev:octane
 ```
 
-That runs the same stack (queue, Pail, Vite) but serves the app via `php artisan octane:start --watch` (FrankenPHP). For production you would run Octane behind Nginx and use a process manager (e.g. Supervisor); see `config/octane.php` and the [Octane docs](https://laravel.com/docs/octane).
+That runs the same stack (queue, Pail, Vite) but serves the app via `php artisan octane:start --watch` (FrankenPHP). FrankenPHP includes Caddy, so Octane can serve traffic directly; add an external reverse proxy and/or process manager only if your deployment requires it. See `config/octane.php` and the [Octane docs](https://laravel.com/docs/octane).
 
 **When using Octane:**
 

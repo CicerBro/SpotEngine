@@ -1,0 +1,11 @@
+services:
+    app:
+        build:
+            context: .
+            dockerfile: docker/frankenphp/Dockerfile.prod
+        environment:
+            APP_ENV: production
+            APP_DEBUG: "false"
+        volumes: !override
+            - caddy_data:/data
+            - caddy_config:/config
