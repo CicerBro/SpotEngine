@@ -16,8 +16,8 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 - **Newznab-compatible API**: Can be used with tools like Sonarr, Radarr, and similar automation software.
 - **Extensible search**: `SearchDriver` contract with a `DatabaseSearchDriver` (uses PostgreSQL FTS) and a `ManticoreSearchDriver` stub. Currently Manticore is a work in progress.
 - **Redis caching**: categories cached in Redis, NZB/image files cached to disk with a configurable pruning schedule
-- **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval. Initial full Spot retrieval can be done in under 5 minutes on an Apple M1 Pro.
-- **Spot retrieval**: This is currently being done new to old. So new spots will be indexed first and then it'll work backwards. Can be changed in config.
+- **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval. Initial full scan can be done in under 5 minutes on an Apple M1 Pro.
+- **Two-phase spot retrieval**: Initial scan uses XOVER for fast bulk indexing — the app is usable right away. Enrichment fills in the rest via HEAD requests in the background. See [Spot Retrieval](#spot-retrieval) for details.
 
 ## Requirements
 
@@ -83,22 +83,56 @@ Copy `.env.example` to `.env` and fill in:
 | `NNTP_USERNAME`, `NNTP_PASSWORD`     | Usenet credentials                                               |
 | `NNTP_CONNECTIONS`                   | Parallel connection count (default `20`)                         |
 | `SEARCH_DRIVER`                      | `database` (default) or `manticore` (work in progress)           |
-| `CACHE_NZB_RETENTION_DAYS`           | Days to keep cached NZB files (default `30`)                     |
-| `CACHE_IMAGE_RETENTION_DAYS`         | Days to keep cached images (default `30`)                        |
+| `CACHE_NZB_RETENTION_DAYS`           | Days to keep cached NZB files before pruning (default `30`)      |
+| `CACHE_IMAGE_RETENTION_DAYS`         | Days to keep cached images before pruning (default `30`)         |
 | `REGISTRATION_OPEN`                  | Allow new user registrations (`true`/`false`)                    |
 | **Optional (Octane)**                |                                                                  |
 | `OCTANE_SERVER`                      | Octane server: `frankenphp` (default), `roadrunner`, `swoole`    |
 | `OCTANE_HTTPS`                       | Set to `true` when serving over HTTPS so URLs use `https://`     |
 | `CACHE_STORE`                        | Set to `octane` when using Octane for in-memory cache (optional) |
 
-## Scheduled Jobs
+## Spot Retrieval
 
-| Command            | Schedule         | Description                       |
-| ------------------ | ---------------- | --------------------------------- |
-| `spot:retrieve`    | Every 15 minutes | Fetch new spots from Usenet       |
-| `spot:prune-cache` | Daily at 03:00   | Remove old cached NZB/image files |
+Spot fetching uses a two-phase approach:
 
-Run `php artisan spot:retrieve --full` to do an initial full retrieval.
+### 1. Initial scan (`--initial-scan`)
+
+Run once when setting up a new instance:
+
+```bash
+php artisan spot:retrieve --initial-scan
+```
+
+Uses XOVER to bulk-index spots in parallel. This is fast — the newsgroup's full history can be indexed in minutes. Spots are immediately browsable with their core metadata: title, category, size, and poster. Descriptions, images, NZB segments, and signature verification are not yet populated.
+
+### 2. Enrichment (`spot:enrich`)
+
+After the initial scan, run the enrich command to fill in the full X-XML data for all indexed spots:
+
+```bash
+php artisan spot:enrich
+```
+
+This fetches the `HEAD` for each unenriched spot in parallel and populates descriptions, image references, NZB segments, and verifies RSA signatures. It can run in the background while users are already browsing. When a user opens a spot that hasn't been enriched yet, it is enriched lazily in real time.
+
+### 3. Ongoing retrieval
+
+Once the initial scan and enrichment are done, `spot:retrieve` runs on a schedule (every 15 minutes by default). It fetches `HEAD` for all new articles since the last run, getting full X-XML data in a single pass — no separate enrich step needed for new spots.
+
+## Scheduling
+
+SpotEngine uses [Laravel's task scheduler](https://laravel.com/docs/12.x/scheduling#running-the-scheduler) for incremental spot retrieval and cache maintenance. To activate it, add a single cron entry on your server:
+
+```
+* * * * * cd /path-to-your-project && php artisan schedule:run >> /dev/null 2>&1
+```
+
+This runs the scheduler every minute, which in turn executes the configured jobs at their defined intervals:
+
+| Command            | Schedule         | Description                                                                                                          |
+| ------------------ | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `spot:retrieve`    | Every 15 minutes | Incrementally fetch new spots via HEAD (full data in one pass)                                                       |
+| `spot:prune-cache` | Daily at 03:00   | Remove cached NZB/image files older than `CACHE_NZB_RETENTION_DAYS` / `CACHE_IMAGE_RETENTION_DAYS` (default 30 each) |
 
 ## API
 
@@ -125,9 +159,10 @@ Tests run against a dedicated `spotengine_test` PostgreSQL database with `Refres
 
 ```bash
 vendor/bin/phpstan analyse --memory-limit=1G
+vendor/bin/rector --dry-run
 ```
 
-PHPStan level 5 with Larastan. Zero errors expected.
+PHPStan level 5 with Larastan — zero errors expected. Rector is configured for PHP 8.4+ and Laravel best practices (dead code removal, code quality). Run without `--dry-run` to apply changes.
 
 ## Code Style
 
