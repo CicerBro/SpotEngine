@@ -116,7 +116,7 @@ class ApiController extends Controller
             ->latestFirst()
             ->paginate($limit, ['*'], 'page', $page);
 
-        return $this->rssResponse($spots->items(), $user);
+        return $this->rssResponse($spots->items(), $user, $spots->total(), $offset);
     }
 
     private function tvSearch(Request $request): Response
@@ -224,8 +224,12 @@ class ApiController extends Controller
         return [$query];
     }
 
-    /** @param  Spot[]  $spots */
-    private function rssResponse(array $spots, ?User $user): Response
+    /**
+     * @param  Spot[]  $spots
+     * @param  int|null  $total  Total matching results (for pagination). When null, uses count of $spots.
+     * @param  int|null  $offset  Offset of current page. When null, uses 0.
+     */
+    private function rssResponse(array $spots, ?User $user, ?int $total = null, ?int $offset = null): Response
     {
         $baseUrl = rtrim((string) config('app.url'), '/');
         $apiKey = $user !== null ? ($user->api_token ?? '') : '';
@@ -254,7 +258,8 @@ class ApiController extends Controller
             XML;
         }
 
-        $total = \count($spots);
+        $total = $total ?? \count($spots);
+        $offset = $offset ?? 0;
         $xml = <<<XML
         <?xml version="1.0" encoding="UTF-8"?>
         <rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:newznab="http://www.newznab.com/DTD/2010/feeds/attributes/">
@@ -262,7 +267,7 @@ class ApiController extends Controller
           <title>SpotEngine</title>
           <description>SpotEngine Spotnet Client</description>
           <link>{$baseUrl}</link>
-          <newznab:response offset="0" total="{$total}"/>{$items}
+          <newznab:response offset="{$offset}" total="{$total}"/>{$items}
         </channel>
         </rss>
         XML;
