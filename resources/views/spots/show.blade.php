@@ -63,6 +63,20 @@
                 <dd class="text-right text-gray-700 break-all">{{ $spot->poster ?: 'Unknown' }}</dd>
             </div>
 
+            @if($spot->website)
+                <div class="flex items-start justify-between gap-3 border-b border-gray-100 pb-2">
+                    <dt class="text-gray-500">Website</dt>
+                    <dd class="text-right">
+                        <a href="{{ $spot->website }}"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="font-medium text-blue-600 hover:text-blue-800 break-all text-xs">
+                            {{ $spot->website }}
+                        </a>
+                    </dd>
+                </div>
+            @endif
+
             @if($spot->file_size)
                 <div class="flex items-start justify-between gap-3 border-b border-gray-100 pb-2">
                     <dt class="text-gray-500">Size</dt>
