@@ -45,6 +45,23 @@ test('API search with valid key returns RSS', function () {
     $response->assertHeader('Content-Type', 'text/xml; charset=UTF-8');
 });
 
+test('API search reports total and offset for pagination', function () {
+    $user = User::factory()->create();
+    Spot::factory()->count(5)->create(['title' => 'unique pagination test']);
+
+    $response = $this->get(route('api', [
+        't' => 'search',
+        'apikey' => $user->api_token,
+        'q' => 'unique pagination test',
+        'limit' => 2,
+        'offset' => 2,
+    ]));
+
+    $response->assertSuccessful();
+    $response->assertSee('offset="2"', false);
+    $response->assertSee('total="5"', false);
+});
+
 test('API details requires API key', function () {
     $spot = Spot::factory()->create();
 
