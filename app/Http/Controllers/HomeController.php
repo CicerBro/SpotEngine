@@ -7,6 +7,7 @@ namespace App\Http\Controllers;
 use App\Enums\SearchField;
 use App\Models\Category;
 use App\Models\Spot;
+use App\Services\ListingCacheService;
 use App\Services\Nntp\NntpService;
 use App\Services\NzbDownloadService;
 use App\Services\SpotEnricher;
@@ -19,19 +20,22 @@ class HomeController extends Controller
         private readonly NntpService $nntpService,
         private readonly SpotEnricher $enricher,
         private readonly NzbDownloadService $nzbService,
+        private readonly ListingCacheService $listingCache,
     ) {}
 
     public function index(Request $request): \Illuminate\View\View
     {
-        $spots = Spot::query()
-            ->select(['id', 'title', 'poster', 'file_size', 'spot_posted_at', 'category_code', 'subcategories'])
-            ->with('category:code,name,slug')
-            ->when($request->filled('cat'), fn ($q) => $q->inCategory($request->cat))
-            ->when($request->filled('subcat'), fn ($q) => $q->withSubcategory((array) $request->subcat))
-            ->when($request->filled('q'), fn ($q) => $q->search($request->q, SearchField::fromRequest($request->search_in)))
-            ->latestFirst()
-            ->paginate(max(10, min(100, $request->integer('per_page', 50))))
-            ->withQueryString();
+        $spots = $this->listingCache->remember($request, function () use ($request) {
+            return Spot::query()
+                ->select(['id', 'title', 'poster', 'file_size', 'spot_posted_at', 'category_code', 'subcategories'])
+                ->with('category:code,name,slug')
+                ->when($request->filled('cat'), fn ($q) => $q->inCategory($request->cat))
+                ->when($request->filled('subcat'), fn ($q) => $q->withSubcategory((array) $request->subcat))
+                ->when($request->filled('q'), fn ($q) => $q->search($request->q, SearchField::fromRequest($request->search_in)))
+                ->latestFirst()
+                ->paginate(max(10, min(100, $request->integer('per_page', 50))))
+                ->withQueryString();
+        });
 
         return view('spots.index', [
             'spots' => $spots,

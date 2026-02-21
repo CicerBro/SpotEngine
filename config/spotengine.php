@@ -63,6 +63,19 @@ return [
         'forward_new_to_old' => (bool) env('RETRIEVAL_FORWARD_NEW_TO_OLD', false),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | Listing cache
+    |--------------------------------------------------------------------------
+    | When enabled, paginated spot listings are cached to avoid redundant
+    | queries between retrieval runs. Cache is flushed automatically when
+    | new spots are inserted.
+    */
+    'listing_cache' => [
+        'enabled' => (bool) env('LISTING_CACHE_ENABLED', false),
+        'ttl' => (int) env('LISTING_CACHE_TTL', 30), // minutes
+    ],
+
     /** Whether new user registration is allowed. */
     'registration_open' => (bool) env('REGISTRATION_OPEN', true),
 ];
