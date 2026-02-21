@@ -60,7 +60,7 @@ class EnrichSpots extends Command
             /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $batch */
             $batch = Spot::query()
                 ->whereNull('xml_signature')
-                ->select(['id', 'message_id'])
+                ->select(['id', 'message_id', 'title', 'category_code', 'spot_posted_at'])
                 ->orderBy('id')
                 ->limit($queryLimit)
                 ->get();
@@ -95,7 +95,16 @@ class EnrichSpots extends Command
                     $upsertRows[] = [
                         'id' => $spot->id,
                         'message_id' => $spot->message_id,
+                        'title' => $spot->title,
+                        'category_code' => $spot->category_code,
+                        'spot_posted_at' => $spot->spot_posted_at,
+                        'description' => null,
+                        'nzb_segments' => '[]',
+                        'image_segment' => null,
+                        'website' => null,
                         'xml_signature' => '',
+                        'poster_key_id' => null,
+                        'is_verified' => false,
                     ];
 
                     continue;
@@ -122,6 +131,9 @@ class EnrichSpots extends Command
                 $upsertRows[] = [
                     'id' => $spot->id,
                     'message_id' => $spot->message_id,
+                    'title' => $spot->title,
+                    'category_code' => $spot->category_code,
+                    'spot_posted_at' => $spot->spot_posted_at,
                     'description' => $parsed['description'] ?? null,
                     'nzb_segments' => json_encode($parsed['nzb_segments'] ?? []) ?: '[]',
                     'image_segment' => $parsed['image_segment'] ?? null,
