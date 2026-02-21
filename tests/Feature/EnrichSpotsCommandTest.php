@@ -90,6 +90,54 @@ test('enrich marks failed HEAD with empty xml_signature and preserves title', fu
         ->and($spot->xml_signature)->toBe('');
 });
 
+test('enrich handles mixed failed and successful HEAD results in same batch', function () {
+    $failedSpot = Spot::factory()->create([
+        'title' => 'Failed Spot',
+        'xml_signature' => null,
+        'description' => null,
+    ]);
+
+    $successSpot = Spot::factory()->create([
+        'title' => 'Success Spot',
+        'xml_signature' => null,
+        'description' => null,
+    ]);
+
+    $xml = <<<'XML'
+    <Spotnet><Posting>
+        <Title>Success Spot</Title>
+        <Description>Enriched</Description>
+        <Category>01</Category>
+        <Website>https://example.com</Website>
+        <Image><Segment>img@news</Segment></Image>
+        <NZB><Segment>nzb@news</Segment></NZB>
+    </Posting></Spotnet>
+    XML;
+
+    $this->mockDriver->shouldReceive('headParallel')
+        ->once()
+        ->andReturn([
+            $failedSpot->message_id => null,
+            $successSpot->message_id => [
+                'x-xml' => $xml,
+                'x-xml-signature' => 'sig456',
+                'x-user-key' => '',
+                'message-id' => $successSpot->message_id,
+            ],
+        ]);
+
+    $this->artisan('spot:enrich')
+        ->assertSuccessful();
+
+    $failedSpot->refresh();
+    $successSpot->refresh();
+
+    expect($failedSpot->xml_signature)->toBe('')
+        ->and($failedSpot->title)->toBe('Failed Spot')
+        ->and($successSpot->xml_signature)->toBe('sig456')
+        ->and($successSpot->description)->toBe('Enriched');
+});
+
 test('enrich deletes spots with no NZB segments', function () {
     $spot = Spot::factory()->create([
         'xml_signature' => null,
