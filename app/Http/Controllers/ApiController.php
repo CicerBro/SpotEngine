@@ -21,15 +21,30 @@ class ApiController extends Controller
 
     public function handle(Request $request): Response
     {
-        return match ($request->input('t')) {
+        $type = $request->input('t');
+
+        $noAuthResponse = match ($type) {
             'caps', 'c' => $this->caps(),
-            'search', 's' => $this->search($request),
-            'tvsearch' => $this->tvSearch($request),
-            'movie', 'moviesearch' => $this->movieSearch($request),
-            'details', 'd' => $this->details($request),
-            'get', 'g', 'getnzb' => $this->getNzb($request),
             'register', 'r' => $this->apiError(501, 'Registration via API is not available'),
-            default => $this->apiError(202, 'No such function'),
+            default => null,
+        };
+        if ($noAuthResponse !== null) {
+            return $noAuthResponse;
+        }
+
+        $authRequired = ['search', 's', 'tvsearch', 'movie', 'moviesearch', 'details', 'd', 'get', 'g', 'getnzb'];
+        if (! in_array($type, $authRequired, true)) {
+            return $this->apiError(202, 'No such function');
+        }
+
+        $user = $this->requireUser();
+
+        return match ($type) {
+            'search', 's' => $this->search($request, $user),
+            'tvsearch' => $this->tvSearch($request, $user),
+            'movie', 'moviesearch' => $this->movieSearch($request, $user),
+            'details', 'd' => $this->details($request, $user),
+            'get', 'g', 'getnzb' => $this->getNzb($request),
         };
     }
 
@@ -100,10 +115,8 @@ class ApiController extends Controller
         return response(trim($xml), 200, ['Content-Type' => 'text/xml; charset=utf-8']);
     }
 
-    private function search(Request $request): Response
+    private function search(Request $request, User $user): Response
     {
-        $user = $this->requireUser();
-
         $query = $request->input('q', '');
         $limit = min(100, max(1, (int) $request->input('limit', 50)));
         $offset = max(0, (int) $request->input('offset', 0));
@@ -119,10 +132,8 @@ class ApiController extends Controller
         return $this->rssResponse($spots->items(), $user, $spots->total(), $offset);
     }
 
-    private function tvSearch(Request $request): Response
+    private function tvSearch(Request $request, User $user): Response
     {
-        $user = $this->requireUser();
-
         $query = trim((string) $request->input('q', ''));
         $season = $request->input('season', '');
         $episode = $request->input('ep', '');
@@ -146,10 +157,8 @@ class ApiController extends Controller
         return $this->rssResponse($spots->all(), $user);
     }
 
-    private function movieSearch(Request $request): Response
+    private function movieSearch(Request $request, User $user): Response
     {
-        $user = $this->requireUser();
-
         $query = $request->input('q', '');
         $limit = min(100, max(1, (int) $request->input('limit', 50)));
 
@@ -164,10 +173,8 @@ class ApiController extends Controller
         return $this->rssResponse($spots->all(), $user);
     }
 
-    private function details(Request $request): Response
+    private function details(Request $request, User $user): Response
     {
-        $user = $this->requireUser();
-
         $spot = Spot::with('category')->findOrFail((int) $request->input('id'));
 
         return $this->rssResponse([$spot], $user);
@@ -175,8 +182,6 @@ class ApiController extends Controller
 
     private function getNzb(Request $request): Response
     {
-        $this->requireUser();
-
         $spot = Spot::findOrFail((int) $request->input('id'));
         $nzb = $this->nzbService->fetchNzb($spot);
 
