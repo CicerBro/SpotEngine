@@ -3,22 +3,29 @@
 declare(strict_types=1);
 
 beforeEach(function () {
-    $this->cachePath = storage_path('app/cache/test-prune-'.uniqid());
-    mkdir($this->cachePath, 0755, true);
-    config(['spotengine.cache.nzb_path' => $this->cachePath]);
-    config(['spotengine.cache.image_path' => $this->cachePath]);
+    $this->nzbCachePath = storage_path('app/cache/test-prune-nzb-'.uniqid());
+    $this->imageCachePath = storage_path('app/cache/test-prune-img-'.uniqid());
+    mkdir($this->nzbCachePath, 0755, true);
+    mkdir($this->imageCachePath, 0755, true);
+    config(['spotengine.cache.nzb_path' => $this->nzbCachePath]);
+    config(['spotengine.cache.image_path' => $this->imageCachePath]);
+
+    // Alias for backwards compat with existing tests that use a single path
+    $this->cachePath = $this->nzbCachePath;
 });
 
 afterEach(function () {
-    if (is_dir($this->cachePath)) {
-        $iterator = new RecursiveIteratorIterator(
-            new RecursiveDirectoryIterator($this->cachePath, FilesystemIterator::SKIP_DOTS),
-            RecursiveIteratorIterator::CHILD_FIRST
-        );
-        foreach ($iterator as $item) {
-            $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+    foreach ([$this->nzbCachePath, $this->imageCachePath] as $path) {
+        if (is_dir($path)) {
+            $iterator = new RecursiveIteratorIterator(
+                new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS),
+                RecursiveIteratorIterator::CHILD_FIRST
+            );
+            foreach ($iterator as $item) {
+                $item->isDir() ? rmdir($item->getPathname()) : unlink($item->getPathname());
+            }
+            rmdir($path);
         }
-        rmdir($this->cachePath);
     }
 });
 
@@ -78,4 +85,43 @@ test('prune-cache still handles flat files at root level', function () {
         ->assertSuccessful();
 
     expect(file_exists($oldFile))->toBeFalse();
+});
+
+test('clear deletes all files regardless of age when confirmed', function () {
+    // Create nested files in both cache directories
+    $nzbDir = $this->nzbCachePath.'/a/3';
+    mkdir($nzbDir, 0755, true);
+    file_put_contents($nzbDir.'/recent.nzb', 'data');
+    file_put_contents($nzbDir.'/old.nzb', 'data');
+
+    $imgDir = $this->imageCachePath.'/b/4';
+    mkdir($imgDir, 0755, true);
+    file_put_contents($imgDir.'/recent.img', 'data');
+
+    $this->artisan('spot:prune-cache', ['--clear' => true])
+        ->expectsConfirmation('Are you sure you want to clear the entire cache?', 'yes')
+        ->assertSuccessful()
+        ->expectsOutputToContain('Cache cleared');
+
+    expect(file_exists($nzbDir.'/recent.nzb'))->toBeFalse();
+    expect(file_exists($nzbDir.'/old.nzb'))->toBeFalse();
+    expect(file_exists($imgDir.'/recent.img'))->toBeFalse();
+});
+
+test('clear aborts when user declines confirmation', function () {
+    $file = $this->nzbCachePath.'/keep-me.nzb';
+    file_put_contents($file, 'data');
+
+    $this->artisan('spot:prune-cache', ['--clear' => true])
+        ->expectsConfirmation('Are you sure you want to clear the entire cache?', 'no')
+        ->assertSuccessful()
+        ->expectsOutputToContain('Aborted');
+
+    expect(file_exists($file))->toBeTrue();
+});
+
+test('clear reports empty cache when no files exist', function () {
+    $this->artisan('spot:prune-cache', ['--clear' => true])
+        ->assertSuccessful()
+        ->expectsOutputToContain('Cache is already empty');
 });
