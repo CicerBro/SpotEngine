@@ -31,7 +31,7 @@ class SigningService
             return false;
         }
 
-        $rawSignature = base64_decode($xmlSignature, true);
+        $rawSignature = base64_decode($this->unescapeBase64($xmlSignature), true);
 
         if ($rawSignature === false || $rawSignature === '') {
             return false;
@@ -57,8 +57,8 @@ class SigningService
             return false;
         }
 
-        $n = base64_decode(trim($modMatches[1]), true);
-        $e = base64_decode(trim($expMatches[1]), true);
+        $n = base64_decode($this->unescapeBase64(trim($modMatches[1])), true);
+        $e = base64_decode($this->unescapeBase64(trim($expMatches[1])), true);
 
         if ($n === false || $e === false || $n === '' || $e === '') {
             return false;
@@ -68,6 +68,15 @@ class SigningService
         $pem = "-----BEGIN PUBLIC KEY-----\n".chunk_split(base64_encode($der), 64, "\n")."-----END PUBLIC KEY-----\n";
 
         return openssl_pkey_get_public($pem);
+    }
+
+    /**
+     * Spotnet escapes base64 characters that conflict with NNTP headers:
+     * + → -p, / → -s, = → -e.
+     */
+    private function unescapeBase64(string $value): string
+    {
+        return str_replace(['-p', '-s', '-e'], ['+', '/', '='], $value);
     }
 
     /**
