@@ -100,15 +100,26 @@
 
         {{-- Actions --}}
         <div class="mt-5 flex flex-wrap gap-2">
-            <a href="{{ route('spots.nzb', $spot) }}"
-               class="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors">
-                Download NZB
-            </a>
+            @if(!empty($spot->nzb_segments))
+                <a href="{{ route('spots.nzb', $spot) }}"
+                   class="inline-flex items-center justify-center rounded-md border border-transparent bg-blue-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors">
+                    Download NZB
+                </a>
+            @endif
             <a href="{{ route('home') }}"
                class="inline-flex items-center justify-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 transition-colors">
                 ← Back
             </a>
         </div>
+
+        @if(empty($spot->nzb_segments))
+            <div class="mt-4 flex items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-700">
+                <svg class="h-4 w-4 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575ZM8 5a.75.75 0 0 0-.75.75v2.5a.75.75 0 0 0 1.5 0v-2.5A.75.75 0 0 0 8 5Zm1 6a1 1 0 1 0-2 0 1 1 0 0 0 2 0Z"/>
+                </svg>
+                <span>This spot is old and no longer has NZB data available on Usenet. Download is not possible.</span>
+            </div>
+        @endif
     </aside>
 
     {{-- Main content --}}

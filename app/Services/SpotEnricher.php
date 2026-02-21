@@ -18,6 +18,8 @@ use App\Services\Nntp\SpotParser;
  */
 class SpotEnricher
 {
+    private const MAX_RETRIES = 2;
+
     public function __construct(
         private readonly NntpService $nntpService,
         private readonly SpotParser $parser,
@@ -36,26 +38,18 @@ class SpotEnricher
             return false;
         }
 
-        $nntp = $this->nntpService->makeDriver(driver: 'single');
+        $headers = $this->fetchHead($spot);
 
-        try {
-            $nntp->connect(showProgress: false);
+        if ($headers === null) {
+            $spot->update(['xml_signature' => '']);
 
-            // HEAD by message-ID works without selecting a group first.
-            $headers = $nntp->head($spot->message_id);
-        } finally {
-            try {
-                $nntp->quit();
-            } catch (\Throwable) {
-                // Ignore quit errors.
-            }
+            return false;
         }
 
         $parsed = $this->parser->parseFromHeaders($headers);
 
         if ($parsed === null) {
-            // No X-XML data available — mark as enriched to avoid repeated attempts.
-            $spot->update(['description' => null, 'nzb_segments' => [], 'image_segment' => null, 'xml_signature' => '']);
+            $spot->update(['xml_signature' => '']);
 
             return false;
         }
@@ -79,6 +73,34 @@ class SpotEnricher
         ]);
 
         return true;
+    }
+
+    /**
+     * Fetch HEAD headers for a spot, retrying on connection failures.
+     *
+     * @return array<string, string>|null
+     */
+    private function fetchHead(Spot $spot): ?array
+    {
+        for ($attempt = 0; $attempt <= self::MAX_RETRIES; $attempt++) {
+            $nntp = $this->nntpService->makeDriver(driver: 'single');
+
+            try {
+                $nntp->connect(showProgress: false);
+
+                return $nntp->head($spot->message_id);
+            } catch (\Throwable) {
+                // Retry on next iteration.
+            } finally {
+                try {
+                    $nntp->quit();
+                } catch (\Throwable) {
+                    // Ignore quit errors.
+                }
+            }
+        }
+
+        return null;
     }
 
     /**
