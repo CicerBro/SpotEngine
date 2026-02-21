@@ -52,6 +52,7 @@ class EnrichSpots extends Command
 
         $enriched = 0;
         $failed = 0;
+        $deleted = 0;
 
         while (true) {
             $queryLimit = $limit !== null ? min($batchSize, $limit - $enriched) : $batchSize;
@@ -76,6 +77,7 @@ class EnrichSpots extends Command
             $headResults = $nntp->headParallel($messageIds, showProgress: false);
 
             $upsertRows = [];
+            $deleteIds = [];
 
             foreach ($headResults as $messageId => $headers) {
                 /** @var Spot|null $spot */
@@ -89,7 +91,7 @@ class EnrichSpots extends Command
                     $failed++;
                     Log::debug('spot:enrich HEAD failed', ['message_id' => $messageId]);
 
-                    // Mark as attempted so this spot isn't retried forever.
+                    // Mark as attempted — HEAD failure may be transient.
                     $upsertRows[] = [
                         'id' => $spot->id,
                         'message_id' => $spot->message_id,
@@ -104,6 +106,14 @@ class EnrichSpots extends Command
                 $userKey = $headers['x-user-key'] ?? '';
 
                 $parsed = $parser->parseFromHeaders($headers);
+
+                if ($parsed === null || ($parsed['nzb_segments'] ?? []) === []) {
+                    $deleted++;
+                    $deleteIds[] = $spot->id;
+                    Log::debug('spot:enrich no NZB data — deleting', ['message_id' => $messageId]);
+
+                    continue;
+                }
 
                 $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== ''
                     ? $signer->verify($xmlContent, $xmlSignature, $userKey)
@@ -131,7 +141,11 @@ class EnrichSpots extends Command
                 ]);
             }
 
-            $this->line("  {$enriched} enriched, {$failed} failed…");
+            if ($deleteIds !== []) {
+                Spot::query()->whereIn('id', $deleteIds)->delete();
+            }
+
+            $this->line("  {$enriched} enriched, {$failed} failed, {$deleted} deleted…");
 
             if ($limit !== null && $enriched >= $limit) {
                 break;
@@ -144,7 +158,7 @@ class EnrichSpots extends Command
 
         $nntp->quit();
 
-        $this->info("Done. Enriched: {$enriched}, failed (no HEAD): {$failed}.");
+        $this->info("Done. Enriched: {$enriched}, failed (no HEAD): {$failed}, deleted (no NZB): {$deleted}.");
 
         return self::SUCCESS;
     }

@@ -27,7 +27,7 @@ class HomeController extends Controller
     {
         $spots = $this->listingCache->remember($request, function () use ($request) {
             return Spot::query()
-                ->select(['id', 'title', 'poster', 'file_size', 'spot_posted_at', 'category_code', 'subcategories'])
+                ->select(['id', 'title', 'poster', 'file_size', 'spot_posted_at', 'category_code', 'subcategories', 'nzb_segments'])
                 ->with('category:code,name,slug')
                 ->when($request->filled('cat'), fn ($q) => $q->inCategory($request->cat))
                 ->when($request->filled('subcat'), fn ($q) => $q->withSubcategory((array) $request->subcat))
