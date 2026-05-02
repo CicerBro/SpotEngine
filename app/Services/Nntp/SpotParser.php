@@ -55,7 +55,7 @@ class SpotParser
         }
 
         // Domain is the last @-part (nickname might itself contain @).
-        $domain = $atParts[\count($atParts) - 1];
+        $domain = (string) array_last($atParts);
         $fields = explode('.', $domain);
 
         // Spotnet requires at least 6 dot-delimited fields in the domain.

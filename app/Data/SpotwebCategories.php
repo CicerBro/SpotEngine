@@ -128,7 +128,7 @@ class SpotwebCategories
         foreach ($data[$hcat] as $letter => $indices) {
             $names = [];
             foreach ($indices as $idx => $value) {
-                $name = \is_array($value) ? ($value[0] ?? '') : (string) $value;
+                $name = \is_array($value) ? (string) (array_first($value) ?? '') : (string) $value;
                 $numIdx = is_numeric($idx) ? (int) $idx : 0;
                 $names[$numIdx] = $name;
             }

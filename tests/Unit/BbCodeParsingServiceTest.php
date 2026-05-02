@@ -49,6 +49,14 @@ test('parses url tag with https', function () {
     expect($out)->toContain('>Discord</a>');
 });
 
+test('normalizes url tag hrefs through the URI parser', function () {
+    $parser = new BbCodeParsingService;
+    $out = $parser->parse('[url=HTTPS://Example.COM/path]Example[/url]');
+
+    expect($out)->toContain('href="https://example.com/path"');
+    expect($out)->toContain('>Example</a>');
+});
+
 test('plain urls in text become clickable links', function () {
     $out = $this->parser->parse('Check https://example.com and http://test.org for more.');
 
@@ -56,6 +64,14 @@ test('plain urls in text become clickable links', function () {
     expect($out)->toContain('>https://example.com</a>');
     expect($out)->toContain('href="http://test.org"');
     expect($out)->toContain('>http://test.org</a>');
+});
+
+test('plain urls with uppercase schemes become clickable normalized links', function () {
+    $parser = new BbCodeParsingService;
+    $out = $parser->parse('Check HTTPS://Example.COM/path for more.');
+
+    expect($out)->toContain('href="https://example.com/path"');
+    expect($out)->toContain('>HTTPS://Example.COM/path</a>');
 });
 
 test('rejects javascript url', function () {
@@ -69,6 +85,14 @@ test('rejects data url', function () {
     $out = $this->parser->parse('[url=data:text/html,<script>]x[/url]');
 
     expect($out)->not->toContain('href="data:');
+});
+
+test('rejects http urls without a host', function () {
+    $parser = new BbCodeParsingService;
+    $out = $parser->parse('[url=https:///missing-host]x[/url]');
+
+    expect($out)->not->toContain('href="https:///missing-host"');
+    expect($out)->toContain('[url=https:///missing-host]');
 });
 
 test('parses img tag as view image link without embedding', function () {
