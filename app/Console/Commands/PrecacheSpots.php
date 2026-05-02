@@ -67,8 +67,6 @@ class PrecacheSpots extends Command
     {
         $this->info('Pre-caching NZBs…');
 
-        $config = $nntpService->getConfig();
-
         /** @var SingleNntpDriver $nntp */
         $nntp = $nntpService->makeDriver(driver: 'single');
         $nntp->connect();

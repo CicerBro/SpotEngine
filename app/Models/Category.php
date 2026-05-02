@@ -139,7 +139,7 @@ class Category extends Model
     }
 
     /** @var array<string, string> */
-    private const SLUG_LABELS = [
+    private const array SLUG_LABELS = [
         'divx' => 'DivX',
         'wmv' => 'WMV',
         'wmvhd' => 'WMVHD',

@@ -124,9 +124,7 @@ class EnrichSpots extends Command
                     continue;
                 }
 
-                $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== ''
-                    ? $signer->verify($xmlContent, $xmlSignature, $userKey)
-                    : false;
+                $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== '' && $signer->verify($xmlContent, $xmlSignature, $userKey);
 
                 $upsertRows[] = [
                     'id' => $spot->id,

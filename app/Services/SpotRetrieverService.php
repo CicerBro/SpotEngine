@@ -190,7 +190,7 @@ class SpotRetrieverService
             $this->saveState($state, false, $startArticle, $highestArticle, $groupInfo['first']);
         }
 
-        return compact('totalProcessed', 'totalInserted', 'highestArticle');
+        return ['totalProcessed' => $totalProcessed, 'totalInserted' => $totalInserted, 'highestArticle' => $highestArticle];
     }
 
     /** Persist the checkpoint after a completed batch. */
@@ -284,9 +284,7 @@ class SpotRetrieverService
             $xmlData = $this->parser->parseFromHeaders($headers);
 
             if ($xmlData !== null) {
-                $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== ''
-                    ? $this->signer->verify($xmlContent, $xmlSignature, $userKey)
-                    : false;
+                $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== '' && $this->signer->verify($xmlContent, $xmlSignature, $userKey);
 
                 $spots[$idx] = array_merge($spots[$idx], [
                     'description' => $xmlData['description'] ?? null,

@@ -11,11 +11,11 @@ use Illuminate\Support\Facades\DB;
 
 class ListingCacheService
 {
-    private const TAG = 'spots-listing';
+    private const string TAG = 'spots-listing';
 
-    private const KEY_PREFIX = 'spots:listing:';
+    private const string KEY_PREFIX = 'spots:listing:';
 
-    private const RELEVANT_PARAMS = ['cat', 'subcat', 'q', 'search_in', 'per_page', 'page'];
+    private const array RELEVANT_PARAMS = ['cat', 'subcat', 'q', 'search_in', 'per_page', 'page'];
 
     public function remember(Request $request, Closure $callback): mixed
     {

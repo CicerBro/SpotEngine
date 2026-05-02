@@ -18,7 +18,7 @@ use App\Services\Nntp\SpotParser;
  */
 class SpotEnricher
 {
-    private const MAX_RETRIES = 2;
+    private const int MAX_RETRIES = 2;
 
     public function __construct(
         private readonly NntpService $nntpService,
@@ -58,9 +58,7 @@ class SpotEnricher
         $xmlSignature = $headers['x-xml-signature'] ?? '';
         $userKey = $headers['x-user-key'] ?? '';
 
-        $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== ''
-            ? $this->signer->verify($xmlContent, $xmlSignature, $userKey)
-            : false;
+        $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== '' && $this->signer->verify($xmlContent, $xmlSignature, $userKey);
 
         $spot->update([
             'description' => $parsed['description'] ?? null,

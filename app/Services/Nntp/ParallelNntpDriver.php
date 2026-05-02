@@ -730,7 +730,7 @@ class ParallelNntpDriver implements NntpDriverInterface
 
             $readSet = [];
 
-            foreach ($pending as $idx => $_) {
+            foreach (array_keys($pending) as $idx) {
                 $readSet[] = $this->sockets[$idx];
             }
 
@@ -777,7 +777,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                             $states[$idx]['status'] = 'reading_headers';
                         } else {
                             $record($articleNum, null);
-                            $this->headDispatchNext($idx, $socket, $pending, $states, $buffers, $deadlines, $queue, $done, $total, $startTime, $showProgress);
+                            $this->headDispatchNext($idx, $socket, $pending, $states, $deadlines, $queue, $done, $total, $startTime, $showProgress);
                         }
 
                         continue;
@@ -789,7 +789,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                         }
 
                         $record($articleNum, $states[$idx]['headers']);
-                        $this->headDispatchNext($idx, $socket, $pending, $states, $buffers, $deadlines, $queue, $done, $total, $startTime, $showProgress);
+                        $this->headDispatchNext($idx, $socket, $pending, $states, $deadlines, $queue, $done, $total, $startTime, $showProgress);
 
                         continue;
                     }
@@ -866,7 +866,6 @@ class ParallelNntpDriver implements NntpDriverInterface
         mixed $socket,
         array &$pending,
         array &$states,
-        array &$buffers,
         array &$deadlines,
         \SplQueue $queue,
         int &$done,
