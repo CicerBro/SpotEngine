@@ -196,7 +196,7 @@ vendor/bin/phpstan analyse --memory-limit=1G
 vendor/bin/rector --dry-run
 ```
 
-PHPStan level 5 with Larastan means zero errors expected. Rector is configured for PHP 8.4+ and Laravel best practices (dead code removal, code quality). Run without `--dry-run` to apply changes.
+PHPStan level 5 with Larastan means zero errors expected. Rector is configured for PHP 8.5+ and Laravel best practices (dead code removal, code quality). Run without `--dry-run` to apply changes.
 
 ## Code Style
 

@@ -27,6 +27,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
      * @param  array{count: int, first: int, last: int, group: string}  $groupInfo
      * @return array{totalProcessed: int, totalInserted: int, highestArticle: int}
      */
+    #[\Override]
     protected function runBatches(array $batches, bool $backfill, array $groupInfo, UsenetState $state, int $startArticle, ?callable $onBatchComplete, bool $saveStateOnlyAfterLastBatch = false): array
     {
         if (! \function_exists('pcntl_fork')) {
@@ -104,7 +105,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
                 fclose($readPipe);
                 fclose($writePipe);
                 $inserted = $this->batchUpsert($spots);
-                $prevBatch = compact('batchStart', 'batchEnd', 'processed', 'parsed', 'lastInBatch', 'moderationCommands');
+                $prevBatch = ['batchStart' => $batchStart, 'batchEnd' => $batchEnd, 'processed' => $processed, 'parsed' => $parsed, 'lastInBatch' => $lastInBatch, 'moderationCommands' => $moderationCommands];
                 $commitPrev($inserted);
 
                 continue;
@@ -133,7 +134,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
             fclose($writePipe);
             $prevChildPid = $pid;
             $prevReadPipe = $readPipe;
-            $prevBatch = compact('batchStart', 'batchEnd', 'processed', 'parsed', 'lastInBatch', 'moderationCommands');
+            $prevBatch = ['batchStart' => $batchStart, 'batchEnd' => $batchEnd, 'processed' => $processed, 'parsed' => $parsed, 'lastInBatch' => $lastInBatch, 'moderationCommands' => $moderationCommands];
         }
 
         // Collect the final child.
@@ -148,6 +149,6 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
             $this->saveState($state, false, $startArticle, $highestArticle, $groupInfo['first']);
         }
 
-        return compact('totalProcessed', 'totalInserted', 'highestArticle');
+        return ['totalProcessed' => $totalProcessed, 'totalInserted' => $totalInserted, 'highestArticle' => $highestArticle];
     }
 }
