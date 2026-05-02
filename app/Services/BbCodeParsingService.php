@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use Uri\InvalidUriException;
+use Uri\Rfc3986\Uri;
+
 /**
  * Parses BBCode in spot descriptions to safe HTML.
  * Supports standard BBCode per bbcode.org: formatting, links, images, quote, spoiler,
@@ -12,7 +15,7 @@ namespace App\Services;
  */
 class BbCodeParsingService
 {
-    private const string URL_PATTERN = '#(https?://[^\s<>"\']+)#u';
+    private const string URL_PATTERN = '#(https?://[^\s<>"\']+)#iu';
 
     private const int MAX_INPUT_LENGTH = 100_000;
 
@@ -413,21 +416,34 @@ class BbCodeParsingService
 
     private function sanitizeUrl(string $url): ?string
     {
-        $url = trim($url);
+        $url = $url |> trim(...);
+
         if ($url === '') {
             return null;
         }
 
-        if (strncasecmp($url, 'http://', 7) === 0 || strncasecmp($url, 'https://', 8) === 0) {
-            return $url;
+        try {
+            $uri = $url
+                |> (fn (string $value): Uri => new Uri($value));
+        } catch (InvalidUriException) {
+            return null;
         }
 
-        return null;
+        return $uri
+            |> (function (Uri $parsedUri): ?string {
+                $host = $parsedUri->getHost();
+
+                if (! in_array($parsedUri->getScheme(), ['http', 'https'], true) || $host === null || $host === '') {
+                    return null;
+                }
+
+                return $parsedUri->toString();
+            });
     }
 
     private function linkify(string $text): string
     {
-        if (! str_contains($text, 'http://') && ! str_contains($text, 'https://')) {
+        if (stripos($text, 'http://') === false && stripos($text, 'https://') === false) {
             return $this->escape($text);
         }
 
@@ -439,7 +455,7 @@ class BbCodeParsingService
         $out = '';
 
         foreach ($parts as $part) {
-            if (! str_starts_with($part, 'http://') && ! str_starts_with($part, 'https://')) {
+            if (strncasecmp($part, 'http://', 7) !== 0 && strncasecmp($part, 'https://', 8) !== 0) {
                 $out .= $this->escape($part);
 
                 continue;

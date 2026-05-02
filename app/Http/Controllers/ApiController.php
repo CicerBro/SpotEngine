@@ -305,7 +305,7 @@ class ApiController extends Controller
 
     private function mapNewznabCategory(string $category): ?string
     {
-        $cat = (int) explode(',', $category)[0];
+        $cat = (int) array_first(explode(',', $category));
 
         return match (true) {
             $cat >= 1000 && $cat < 2000 => '03', // Console → Games

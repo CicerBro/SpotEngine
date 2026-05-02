@@ -4,7 +4,7 @@ A modern Spotnet web client built on Laravel 12 with PostgreSQL and Newznab comp
 
 ## Why SpotEngine?
 
-[Spotweb](https://github.com/spotweb/spotweb) is a great piece of software, but years of incremental development have made the codebase increasingly difficult to work with. It carries legacy PHP patterns, a complex data model, and performance trade-offs that were fine at the time but show their age today.
+[Spotweb](https://github.com/spotweb/spotweb) is a great piece of software, but years of incremental development have made the codebase increasingly difficult to work with. It carries legacy PHP patterns, a complex data model, and performance trade-offs that were fine at the time but show their age today. The developers seem unwilling to properly improve things, hence SpotEngine was born.
 
 SpotEngine aims to provide the same core experience, browsing and downloading Spotnet spots, with a clean, modern codebase that is a joy to work on:
 
@@ -15,11 +15,11 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 - **Extensible search**: `SearchDriver` contract with a `DatabaseSearchDriver` (uses PostgreSQL FTS) and a `ManticoreSearchDriver` stub. Currently Manticore is a work in progress. For very busy applications with a lot of API traffic, Manticore is the preferred driver.
 - **Redis caching**: categories cached in Redis, NZB/image files cached to disk with a configurable pruning schedule
 - **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval. Initial full scan can be done in under 5 minutes on an Apple M1 Pro.
-- **Two-phase spot retrieval**: Initial scan uses XOVER for fast bulk indexing — the app is usable right away. Enrichment fills in the rest via HEAD requests in the background. See [Spot Retrieval](#spot-retrieval) for details.
+- **Two-phase spot retrieval**: Initial scan uses XOVER for fast bulk indexing so the app is usable right away. Enrichment fills in the rest via HEAD requests in the background. See [Spot Retrieval](#spot-retrieval) for details.
 
 ## Requirements
 
-- PHP 8.4+
+- PHP 8.5+
 - PostgreSQL 16+
 - Redis 7+
 - [Bun](https://bun.sh)
@@ -46,7 +46,7 @@ Docker images in this repository are pinned to FrankenPHP PHP 8.5 variants.
 
 ### How to get started
 
-1. **Configure `.env`** — Copy `.env.example` to `.env` and fill in your database, Redis, and NNTP settings (see [Configuration](#configuration)).
+1. **Configure `.env`**: Copy `.env.example` to `.env` and fill in your database, Redis, and NNTP settings (see [Configuration](#configuration)).
 2. **Install PHP dependencies**:
     ```bash
     composer install
@@ -63,7 +63,7 @@ Docker images in this repository are pinned to FrankenPHP PHP 8.5 variants.
     ```bash
     php artisan migrate:fresh --seed
     ```
-6. **Default login** — Use **admin** / **changeme123** to sign in.
+6. **Default login**: Use **admin** / **changeme123** to sign in.
 
 Then start the stack:
 
@@ -124,7 +124,9 @@ Run once when setting up a new instance:
 php artisan spot:retrieve --initial-scan
 ```
 
-Uses XOVER to bulk-index spots in parallel. This is fast — the newsgroup's full history can be indexed in minutes. Spots are immediately browsable with their core metadata: title, category, size, and poster. Descriptions, images, NZB segments, and signature verification are not yet populated (see below).
+Uses XOVER to bulk-index spots in parallel. This is fast and the newsgroup's full history can be indexed in minutes. Spots are immediately browsable with their core metadata: title, category, size, and poster. Descriptions, images, NZB segments, and signature verification are not yet populated (see below).
+
+NNTP Pipelining could further speed this up but during development there were some provider issues so this is on the backburner for now.
 
 ### 2. Enrichment (`spot:enrich`)
 
@@ -138,11 +140,11 @@ This fetches the `HEAD` for each unenriched spot in parallel and populates descr
 
 ### 3. Ongoing retrieval
 
-Once the initial scan and enrichment are done, `spot:retrieve` runs on a schedule (every 15 minutes by default). It fetches `HEAD` for all new articles since the last run, getting full X-XML data in a single pass — no separate enrich step needed for new spots.
+Once the initial scan and enrichment are done, `spot:retrieve` runs on a schedule (every 15 minutes by default). It fetches `HEAD` for all new articles since the last run, getting full X-XML data in a single pass, no separate enrich step needed for new spots.
 
 ## Scheduling
 
-**Important:** Run the initial scan (and optionally enrichment) _before_ setting up the task scheduler. If you add the cron entry first, the scheduled `spot:retrieve` and your manual initial scan will compete — only one can run at a time, so the scheduler will keep skipping until the scan finishes. Do the initial setup first, then add the cron.
+**Important:** Run the initial scan (and optionally enrichment) _before_ setting up the task scheduler. If you add the cron entry first, the scheduled `spot:retrieve` and your manual initial scan will compete because only one can run at a time, so the scheduler will keep skipping until the scan finishes. Do the initial setup first, then add the cron.
 
 SpotEngine uses [Laravel's task scheduler](https://laravel.com/docs/12.x/scheduling#running-the-scheduler) for incremental spot retrieval and cache maintenance. To activate it, add a single cron entry on your server:
 
@@ -194,7 +196,7 @@ vendor/bin/phpstan analyse --memory-limit=1G
 vendor/bin/rector --dry-run
 ```
 
-PHPStan level 5 with Larastan — zero errors expected. Rector is configured for PHP 8.4+ and Laravel best practices (dead code removal, code quality). Run without `--dry-run` to apply changes.
+PHPStan level 5 with Larastan means zero errors expected. Rector is configured for PHP 8.4+ and Laravel best practices (dead code removal, code quality). Run without `--dry-run` to apply changes.
 
 ## Code Style
 
