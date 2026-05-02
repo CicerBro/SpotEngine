@@ -116,4 +116,17 @@ return [
 
     'prefix' => env('CACHE_PREFIX', Str::slug((string) env('APP_NAME', 'laravel')).'-cache-'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Serializable Classes
+    |--------------------------------------------------------------------------
+    |
+    | When false, cached PHP objects cannot be unserialized (Laravel 13 default).
+    | This application caches Eloquent collections and paginated listings; true keeps
+    | Laravel 12–compatible behavior until payloads are refactored to arrays/DTOs.
+    |
+    */
+
+    'serializable_classes' => true,
+
 ];
