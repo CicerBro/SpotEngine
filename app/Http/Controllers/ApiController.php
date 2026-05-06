@@ -157,6 +157,7 @@ class ApiController extends Controller
         return $this->rssResponse($spots->all(), $user);
     }
 
+    // TODO: Use the IMDB ID parameter to search for movies. Now it just returns all movies.
     private function movieSearch(Request $request, User $user): Response
     {
         $query = $request->input('q', '');
