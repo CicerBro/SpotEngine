@@ -77,5 +77,5 @@ return [
     ],
 
     /** Whether new user registration is allowed. */
-    'registration_open' => (bool) env('REGISTRATION_OPEN', true),
+    'registration_open' => (bool) env('REGISTRATION_OPEN', false),
 ];

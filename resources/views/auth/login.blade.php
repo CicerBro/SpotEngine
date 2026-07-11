@@ -62,7 +62,7 @@
         </form>
     </div>
 
-    @if(Route::has('register'))
+    @if(config('spotengine.registration_open') && Route::has('register'))
         <p class="mt-4 text-center text-sm text-gray-500">
             No account?
             <a href="{{ route('register') }}" class="font-medium text-blue-600 hover:text-blue-700">Create one</a>
