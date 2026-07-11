@@ -123,13 +123,7 @@ final class SpotImageDecoder
      */
     private function decodeYEncLines(array $encodedLines): string
     {
-        $decoded = '';
-
-        foreach ($encodedLines as $line) {
-            $decoded .= $this->yEncLineDecoder->decode($line);
-        }
-
-        return $decoded;
+        return $this->yEncLineDecoder->decodeLines($encodedLines);
     }
 
     /**
