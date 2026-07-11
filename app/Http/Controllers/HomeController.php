@@ -20,6 +20,7 @@ use Illuminate\Http\Response;
 use Illuminate\Pagination\CursorPaginator;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\AcceptHeader;
+use Symfony\Component\HttpFoundation\AcceptHeaderItem;
 
 class HomeController extends Controller
 {
@@ -196,7 +197,7 @@ class HomeController extends Controller
     {
         $gzip = AcceptHeader::fromString($request->headers->get('Accept-Encoding'))->get('gzip');
 
-        return $gzip instanceof \Symfony\Component\HttpFoundation\AcceptHeaderItem && $gzip->getQuality() > 0.0;
+        return $gzip instanceof AcceptHeaderItem && $gzip->getQuality() > 0.0;
     }
 
     private function placeholderImageResponse(string $text): Response
