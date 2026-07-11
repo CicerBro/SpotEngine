@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Http\Middleware\EnsureRegistrationIsOpen;
 use App\Http\Middleware\RequireAdmin;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -18,6 +19,10 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->appendToGroup('web', [
+            EnsureRegistrationIsOpen::class,
+        ]);
+
         $middleware->alias([
             'admin' => RequireAdmin::class,
         ]);
