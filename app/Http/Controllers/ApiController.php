@@ -389,7 +389,6 @@ class ApiController extends Controller
                 <link>{$downloadUrl}</link>
                 <pubDate>{$pubDate}</pubDate>
                 <category>{$categoryName}</category>
-                <description>{$this->xmlEncode($spot->description ?? $spot->title)}</description>
                 <enclosure url="{$downloadUrl}" length="{$spot->file_size}" type="application/x-nzb"/>
                 <newznab:attr name="category" value="{$nzCategory}"/>
                 <newznab:attr name="size" value="{$spot->file_size}"/>
