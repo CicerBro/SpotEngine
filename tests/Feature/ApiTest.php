@@ -120,6 +120,73 @@ test('API tvsearch expands season and episode queries', function () {
     $response->assertDontSee($movie->title);
 });
 
+test('API tvsearch expands localized season queries', function () {
+    $user = User::factory()->create();
+    $matches = [];
+
+    foreach ([
+        'Localized Season Show S5',
+        'Localized Season Show Season 5',
+        'Localized Season Show Seizoen 5',
+        'Localized Season Show Staffel 5',
+        'Localized Season Show Saison 5',
+        'Localized Season Show Temporada 5',
+    ] as $title) {
+        $matches[] = Spot::factory()->inCategory('01')->create([
+            'title' => $title,
+            'subcategories' => ['01z01'],
+        ]);
+    }
+
+    $response = $this->get(route('api', [
+        't' => 'tvsearch',
+        'apikey' => $user->api_token,
+        'q' => 'Localized Season Show',
+        'season' => '5',
+    ]));
+
+    $response->assertSuccessful();
+
+    foreach ($matches as $match) {
+        $response->assertSee($match->title);
+    }
+});
+
+test('API tvsearch expands localized season and episode queries', function () {
+    $user = User::factory()->create();
+    $matches = [];
+
+    foreach ([
+        'Localized Episode Show S1E2',
+        'Localized Episode Show Season 1 Episode 2',
+        'Localized Episode Show Seizoen 1 Aflevering 2',
+        'Localized Episode Show Staffel 1 Folge 2',
+        'Localized Episode Show Saison 1 Épisode 2',
+        'Localized Episode Show Saison 1 Episode 2',
+        'Localized Episode Show Temporada 1 Episodio 2',
+        'Localized Episode Show Temporada 1 Episódio 2',
+    ] as $title) {
+        $matches[] = Spot::factory()->inCategory('01')->create([
+            'title' => $title,
+            'subcategories' => ['01z01'],
+        ]);
+    }
+
+    $response = $this->get(route('api', [
+        't' => 'tvsearch',
+        'apikey' => $user->api_token,
+        'q' => 'Localized Episode Show',
+        'season' => '1',
+        'ep' => '2',
+    ]));
+
+    $response->assertSuccessful();
+
+    foreach ($matches as $match) {
+        $response->assertSee($match->title);
+    }
+});
+
 test('API tvsearch supports its advertised TV identifiers', function () {
     $user = User::factory()->create();
     $tvmaze = Spot::factory()->inCategory('01')->create([

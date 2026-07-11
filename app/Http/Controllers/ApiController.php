@@ -12,6 +12,7 @@ use App\Services\Search\Contracts\SearchDriver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpFoundation\AcceptHeader;
+use Symfony\Component\HttpFoundation\AcceptHeaderItem;
 
 /**
  * Newznab-compatible API for Sonarr, Radarr, and similar automation tools.
@@ -270,8 +271,8 @@ class ApiController extends Controller
     /**
      * Build TV search query variants mirroring Spotweb behaviour.
      *
-     * Given "Breaking Bad", season=1, episode=2 produces:
-     *   ["Breaking Bad S01E02", "Breaking Bad Season 1 Episode 2"]
+     * Supports compact and localized season and episode labels commonly used
+     * in English, Dutch, German, French, Spanish, and Portuguese titles.
      *
      * @return string[]
      */
@@ -285,19 +286,39 @@ class ApiController extends Controller
             $s = str_pad($season, 2, '0', STR_PAD_LEFT);
             $e = str_pad($episode, 2, '0', STR_PAD_LEFT);
 
-            return [
+            $variants = [
                 "{$query} S{$s}E{$e}",
-                "{$query} Season {$season} Episode {$episode}",
+                "{$query} S{$season}E{$episode}",
             ];
+
+            foreach ([
+                ['Season', 'Episode'],
+                ['Seizoen', 'Aflevering'],
+                ['Staffel', 'Folge'],
+                ['Saison', 'Épisode'],
+                ['Saison', 'Episode'],
+                ['Temporada', 'Episodio'],
+                ['Temporada', 'Episódio'],
+            ] as [$seasonLabel, $episodeLabel]) {
+                $variants[] = "{$query} {$seasonLabel} {$season} {$episodeLabel} {$episode}";
+            }
+
+            return array_values(array_unique($variants));
         }
 
         if ($season !== '' && $season !== '0') {
             $s = str_pad($season, 2, '0', STR_PAD_LEFT);
 
-            return [
+            $variants = [
                 "{$query} S{$s}",
-                "{$query} Season {$season}",
+                "{$query} S{$season}",
             ];
+
+            foreach (['Season', 'Seizoen', 'Staffel', 'Saison', 'Temporada'] as $seasonLabel) {
+                $variants[] = "{$query} {$seasonLabel} {$season}";
+            }
+
+            return array_values(array_unique($variants));
         }
 
         return [$query];
@@ -365,7 +386,7 @@ class ApiController extends Controller
     {
         $gzip = AcceptHeader::fromString($request->headers->get('Accept-Encoding'))->get('gzip');
 
-        return $gzip instanceof \Symfony\Component\HttpFoundation\AcceptHeaderItem && $gzip->getQuality() > 0.0;
+        return $gzip instanceof AcceptHeaderItem && $gzip->getQuality() > 0.0;
     }
 
     private function requireUser(): User
