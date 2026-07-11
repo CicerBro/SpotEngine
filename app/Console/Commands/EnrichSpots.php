@@ -20,15 +20,13 @@ use Illuminate\Support\Facades\Log;
  * verifies the RSA signature and updates the database record. Safe to run
  * repeatedly — already-enriched spots are skipped.
  */
-class EnrichSpots extends Command
-{
-    protected $signature = 'spot:enrich
+#[\Illuminate\Console\Attributes\Description('Fetch full X-XML headers for spots indexed with --initial-scan')]
+#[\Illuminate\Console\Attributes\Signature('spot:enrich
                             {--connections= : Number of parallel NNTP connections (default from config)}
                             {--batch= : Articles per NNTP batch (default 500)}
-                            {--limit= : Maximum number of spots to enrich in this run}';
-
-    protected $description = 'Fetch full X-XML headers for spots indexed with --initial-scan';
-
+                            {--limit= : Maximum number of spots to enrich in this run}')]
+class EnrichSpots extends Command
+{
     public function handle(
         NntpService $nntpService,
         SpotParser $parser,

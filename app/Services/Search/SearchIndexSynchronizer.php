@@ -11,9 +11,9 @@ use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
-final class SearchIndexSynchronizer
+final readonly class SearchIndexSynchronizer
 {
-    public function __construct(private readonly SearchDriver $searchDriver) {}
+    public function __construct(private SearchDriver $searchDriver) {}
 
     public function synchronizePending(int $batchSize = 500, ?int $limit = null): int
     {

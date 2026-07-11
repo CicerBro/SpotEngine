@@ -28,7 +28,7 @@ final class YEncLineDecoder
             }
         }
 
-        return strtr($line, ...self::translationTable());
+        return strtr($line, ...$this->translationTable());
     }
 
     /**
@@ -54,7 +54,7 @@ final class YEncLineDecoder
     /**
      * @return array{string, string}
      */
-    private static function translationTable(): array
+    private function translationTable(): array
     {
         /** @var array{string, string}|null $translationTable */
         static $translationTable = null;

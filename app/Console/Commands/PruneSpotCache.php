@@ -6,15 +6,13 @@ namespace App\Console\Commands;
 
 use Illuminate\Console\Command;
 
-class PruneSpotCache extends Command
-{
-    protected $signature = 'spot:prune-cache
+#[\Illuminate\Console\Attributes\Description('Delete cached NZB and image files older than the configured retention period')]
+#[\Illuminate\Console\Attributes\Signature('spot:prune-cache
                             {--nzb-days= : Override NZB retention days from config}
                             {--image-days= : Override image retention days from config}
-                            {--clear : Delete ALL cached NZB and image files regardless of retention settings}';
-
-    protected $description = 'Delete cached NZB and image files older than the configured retention period';
-
+                            {--clear : Delete ALL cached NZB and image files regardless of retention settings}')]
+class PruneSpotCache extends Command
+{
     public function handle(): int
     {
         if ($this->option('clear')) {

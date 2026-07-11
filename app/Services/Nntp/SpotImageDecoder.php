@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace App\Services\Nntp;
 
-final class SpotImageDecoder
+final readonly class SpotImageDecoder
 {
     public function __construct(
-        private readonly YEncLineDecoder $yEncLineDecoder = new YEncLineDecoder,
+        private YEncLineDecoder $yEncLineDecoder = new YEncLineDecoder,
     ) {}
 
     /**

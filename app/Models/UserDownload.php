@@ -8,18 +8,16 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+    'user_id',
+    'spot_id',
+    'downloaded_at',
+])]
+#[\Illuminate\Database\Eloquent\Attributes\WithoutTimestamps]
 class UserDownload extends Model
 {
     /** @use HasFactory<\Database\Factories\UserDownloadFactory> */
     use HasFactory;
-
-    public $timestamps = false;
-
-    protected $fillable = [
-        'user_id',
-        'spot_id',
-        'downloaded_at',
-    ];
 
     #[\Override]
     protected function casts(): array

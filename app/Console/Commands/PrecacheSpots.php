@@ -13,15 +13,13 @@ use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
 
-class PrecacheSpots extends Command
-{
-    protected $signature = 'spot:precache
+#[\Illuminate\Console\Attributes\Description('Pre-warm the NZB and image file caches by fetching from NNTP')]
+#[\Illuminate\Console\Attributes\Signature('spot:precache
                             {--type=both : What to pre-cache (nzb, images, both)}
                             {--batch=100 : Spots per batch}
-                            {--limit= : Max spots to process}';
-
-    protected $description = 'Pre-warm the NZB and image file caches by fetching from NNTP';
-
+                            {--limit= : Max spots to process}')]
+class PrecacheSpots extends Command
+{
     private bool $shouldStop = false;
 
     public function handle(

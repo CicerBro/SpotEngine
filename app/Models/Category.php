@@ -23,21 +23,19 @@ use Illuminate\Support\Facades\Cache;
  * @property-read Category|null $parent
  * @property-read Collection<int, Category> $children
  */
+#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+    'code',
+    'parent_code',
+    'name',
+    'slug',
+    'type',
+    'sort_order',
+])]
+#[\Illuminate\Database\Eloquent\Attributes\WithoutTimestamps]
 class Category extends Model
 {
     /** @use HasFactory<\Database\Factories\CategoryFactory> */
     use HasFactory;
-
-    public $timestamps = false;
-
-    protected $fillable = [
-        'code',
-        'parent_code',
-        'name',
-        'slug',
-        'type',
-        'sort_order',
-    ];
 
     #[\Override]
     protected function casts(): array

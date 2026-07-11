@@ -8,12 +8,10 @@ use App\Data\SpotwebCategories;
 use App\Models\Category;
 use Illuminate\Console\Command;
 
+#[\Illuminate\Console\Attributes\Description('Update spot categories from Spotweb SpotCategories definitions')]
+#[\Illuminate\Console\Attributes\Signature('spot:categories:update')]
 class UpdateSpotCategories extends Command
 {
-    protected $signature = 'spot:categories:update';
-
-    protected $description = 'Update spot categories from Spotweb SpotCategories definitions';
-
     public function handle(): int
     {
         $rows = SpotwebCategories::toCategoryRows();

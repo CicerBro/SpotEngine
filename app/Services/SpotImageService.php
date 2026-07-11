@@ -226,8 +226,6 @@ class SpotImageService
             if ($image === false) {
                 throw new \UnexpectedValueException('The decoded preview image is corrupt.');
             }
-
-            imagedestroy($image);
         }
 
         return $contentType;

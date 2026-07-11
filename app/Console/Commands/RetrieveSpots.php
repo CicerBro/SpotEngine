@@ -8,18 +8,17 @@ use App\Services\OverlappedSpotRetrieverService;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Console\Isolatable;
 
-class RetrieveSpots extends Command implements Isolatable
-{
-    protected $isolated = true;
-
-    protected $signature = 'spot:retrieve
+#[\Illuminate\Console\Attributes\Description('Fetch new spots from Usenet and store them in the database')]
+#[\Illuminate\Console\Attributes\Signature('spot:retrieve
                             {--initial-scan : XOVER only — fast bulk index; run spot:enrich afterwards to populate X-XML}
                             {--backfill : Fetch older spots below current position (run repeatedly until complete)}
                             {--reset-backfill : Reset backfill progress and start over}
                             {--limit= : Maximum number of articles per run}
-                            {--connections= : Parallel NNTP connections — only used with --initial-scan (default from config)}';
-
-    protected $description = 'Fetch new spots from Usenet and store them in the database';
+                            {--connections= : Parallel NNTP connections — only used with --initial-scan (default from config)}')]
+class RetrieveSpots extends Command implements Isolatable
+{
+    #[\Override]
+    protected $isolated = true;
 
     public function handle(OverlappedSpotRetrieverService $service): int
     {
