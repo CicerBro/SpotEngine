@@ -8,7 +8,10 @@ use App\Services\OverlappedSpotRetrieverService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Console\Isolatable;
+use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Output\OutputInterface;
 
 #[Description('Fetch new spots from Usenet and store them in the database')]
 #[Signature('spot:retrieve
@@ -16,7 +19,8 @@ use Illuminate\Contracts\Console\Isolatable;
                             {--backfill : Fetch older spots below current position (run repeatedly until complete)}
                             {--reset-backfill : Reset backfill progress and start over}
                             {--limit= : Maximum number of articles per run}
-                            {--connections= : Parallel NNTP connections — only used with --initial-scan (default from config)}')]
+                            {--connections= : Parallel NNTP connections — only used with --initial-scan (default from config)}
+                            {--clear-lock : Release any stuck isolation or scheduler overlap lock for this command}')]
 class RetrieveSpots extends Command implements Isolatable
 {
     #[\Override]
@@ -102,6 +106,16 @@ class RetrieveSpots extends Command implements Isolatable
         return self::SUCCESS;
     }
 
+    #[\Override]
+    protected function execute(InputInterface $input, OutputInterface $output): int
+    {
+        if ($this->option('clear-lock')) {
+            return $this->clearLocks();
+        }
+
+        return parent::execute($input, $output);
+    }
+
     /**
      * Validate NNTP config and confirm full retrieval when applicable. Returns null to continue, or exit code to return.
      */
@@ -149,5 +163,43 @@ class RetrieveSpots extends Command implements Isolatable
         }
         $this->line('  If unwanted, disable it in .env with RETRIEVAL_FORWARD_NEW_TO_OLD=false and run artisan config:cache again.');
         $this->newLine();
+    }
+
+    /**
+     * Release stuck Isolatable and scheduler overlap locks without running retrieval.
+     */
+    private function clearLocks(): int
+    {
+        $mutex = $this->commandIsolationMutex();
+
+        if ($mutex->exists($this)) {
+            $mutex->forget($this);
+            $this->components->info('Released the command isolation lock.');
+        } else {
+            $this->line('No command isolation lock was found.');
+        }
+
+        $schedulerCleared = false;
+        $schedule = $this->laravel->make(Schedule::class);
+
+        foreach ($schedule->events() as $event) {
+            if (! str_contains((string) ($event->command ?? ''), 'spot:retrieve')) {
+                continue;
+            }
+
+            if (! $event->mutex->exists($event)) {
+                continue;
+            }
+
+            $event->mutex->forget($event);
+            $this->components->info('Released the scheduler overlap lock.');
+            $schedulerCleared = true;
+        }
+
+        if (! $schedulerCleared) {
+            $this->line('No scheduler overlap lock was found.');
+        }
+
+        return self::SUCCESS;
     }
 }
