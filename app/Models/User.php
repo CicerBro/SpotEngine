@@ -26,25 +26,23 @@ use Illuminate\Notifications\Notifiable;
  * @property CarbonImmutable $updated_at
  * @property-read Collection<int, UserDownload> $downloads
  */
+#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+    'username',
+    'name',
+    'email',
+    'password',
+    'is_admin',
+    'api_token',
+    'last_login_at',
+])]
+#[\Illuminate\Database\Eloquent\Attributes\Hidden([
+    'password',
+    'remember_token',
+])]
 class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
-
-    protected $fillable = [
-        'username',
-        'name',
-        'email',
-        'password',
-        'is_admin',
-        'api_token',
-        'last_login_at',
-    ];
-
-    protected $hidden = [
-        'password',
-        'remember_token',
-    ];
 
     #[\Override]
     protected function casts(): array

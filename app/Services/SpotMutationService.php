@@ -8,9 +8,9 @@ use App\Models\Spot;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
-final class SpotMutationService
+final readonly class SpotMutationService
 {
-    public function __construct(private readonly ListingCacheService $listingCache) {}
+    public function __construct(private ListingCacheService $listingCache) {}
 
     /**
      * @param  list<array<string, mixed>>  $rows

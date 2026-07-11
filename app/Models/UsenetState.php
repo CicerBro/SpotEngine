@@ -15,23 +15,22 @@ use Illuminate\Database\Eloquent\Model;
  * @property CarbonImmutable|null $last_retrieval_at
  * @property CarbonImmutable|null $updated_at
  */
+#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+    'newsgroup',
+    'last_article_id',
+    'first_article_id',
+    'last_backfilled_article_id',
+    'last_retrieval_at',
+])]
+#[\Illuminate\Database\Eloquent\Attributes\WithoutIncrementing]
+#[\Illuminate\Database\Eloquent\Attributes\WithoutTimestamps]
 class UsenetState extends Model
 {
-    public $incrementing = false;
-
-    public $timestamps = false;
-
+    #[\Override]
     protected $primaryKey = 'newsgroup';
 
+    #[\Override]
     protected $keyType = 'string';
-
-    protected $fillable = [
-        'newsgroup',
-        'last_article_id',
-        'first_article_id',
-        'last_backfilled_article_id',
-        'last_retrieval_at',
-    ];
 
     #[\Override]
     protected function casts(): array

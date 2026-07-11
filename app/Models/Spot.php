@@ -47,6 +47,24 @@ use Illuminate\Support\Collection;
  * @property-read string $size_formatted
  * @property-read string $sender
  */
+#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+    'message_id',
+    'poster',
+    'poster_key_id',
+    'title',
+    'description',
+    'tag',
+    'website',
+    'category_code',
+    'subcategories',
+    'file_size',
+    'image_segment',
+    'image_segments',
+    'nzb_segments',
+    'spot_posted_at',
+    'xml_signature',
+    'is_verified',
+])]
 class Spot extends Model
 {
     /** @use HasFactory<SpotFactory> */
@@ -57,25 +75,6 @@ class Spot extends Model
     private ?string $cachedDescriptionHtmlSource = null;
 
     private string $cachedDescriptionHtml = '';
-
-    protected $fillable = [
-        'message_id',
-        'poster',
-        'poster_key_id',
-        'title',
-        'description',
-        'tag',
-        'website',
-        'category_code',
-        'subcategories',
-        'file_size',
-        'image_segment',
-        'image_segments',
-        'nzb_segments',
-        'spot_posted_at',
-        'xml_signature',
-        'is_verified',
-    ];
 
     #[\Override]
     protected function casts(): array

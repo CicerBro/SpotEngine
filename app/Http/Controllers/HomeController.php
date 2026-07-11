@@ -31,21 +31,19 @@ class HomeController extends Controller
 
     public function index(Request $request): View
     {
-        $spots = $this->listingCache->remember($request, function () use ($request) {
-            return $this->searchDriver
-                ->paginate(new SpotSearchCriteria(
-                    term: $request->filled('q') ? (string) $request->q : null,
-                    field: SearchField::fromRequest($request->search_in),
-                    category: $request->filled('cat') ? (string) $request->cat : null,
-                    subcategories: array_values(array_filter(
-                        (array) $request->subcat,
-                        \is_string(...),
-                    )),
-                    perPage: max(10, min(100, $request->integer('per_page', 50))),
-                    page: max(1, $request->integer('page', 1)),
-                ))
-                ->withQueryString();
-        });
+        $spots = $this->listingCache->remember($request, fn() => $this->searchDriver
+            ->paginate(new SpotSearchCriteria(
+                term: $request->filled('q') ? (string) $request->q : null,
+                field: SearchField::fromRequest($request->search_in),
+                category: $request->filled('cat') ? (string) $request->cat : null,
+                subcategories: array_values(array_filter(
+                    (array) $request->subcat,
+                    \is_string(...),
+                )),
+                perPage: max(10, min(100, $request->integer('per_page', 50))),
+                page: max(1, $request->integer('page', 1)),
+            ))
+            ->withQueryString());
 
         return view('spots.index', [
             'spots' => $spots,
@@ -93,7 +91,7 @@ class HomeController extends Controller
             'subcategoryNames' => $subcategoryNames,
             'rootCategory' => $spot->root_category,
             'badgeLabel' => $badgeLabel,
-            'hasBadgeCategory' => $badgeCategory !== null,
+            'hasBadgeCategory' => $badgeCategory instanceof \App\Models\Category,
             'genreLabel' => $spot->resolveGenreLabel($categoriesByCode),
         ]);
     }
