@@ -60,6 +60,7 @@ test('enrich preserves title when upserting spot data', function () {
     expect($spot->title)->toBe('My Test Title')
         ->and($spot->description)->toBe('Enriched description')
         ->and($spot->xml_signature)->toBe('sig123')
+        ->and($spot->image_segments)->toBe(['img-segment@news'])
         ->and($spot->nzb_segments)->toBe(['nzb-segment@news']);
 });
 

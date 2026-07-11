@@ -15,7 +15,7 @@ $rowBgClass = $rootCategory?->rowBackgroundClass() ?? 'hover:bg-gray-100/60';
         <div class="flex items-center gap-2">
             <a href="{{ route('spots.show', $spot) }}"
                class="truncate text-gray-900 hover:text-blue-600 font-medium transition-colors leading-snug focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
-               @mouseenter="$store.spotPreview.show('{{ route('spots.image', $spot) }}', $event.clientX, $event.clientY)"
+               @mouseenter="$store.spotPreview.show('{{ route('spots.image', ['spot' => $spot, 'v' => config('spotengine.cache.image_version')]) }}', $event.clientX, $event.clientY)"
                @mousemove="$store.spotPreview.move($event.clientX, $event.clientY)">
                 {{ $spot->title }}
             </a>
