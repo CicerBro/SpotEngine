@@ -34,16 +34,20 @@ services:
         ports:
             - "${FORWARD_DB_PORT:-5432}:5432"
         volumes:
-            - postgres_data:/var/lib/postgresql/data
+            - postgres_data:/var/lib/postgresql
         healthcheck:
-            test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-spotengine} -d ${DB_DATABASE:-spotengine}"]
+            test:
+                [
+                    "CMD-SHELL",
+                    "pg_isready -U ${DB_USERNAME:-spotengine} -d ${DB_DATABASE:-spotengine}",
+                ]
             interval: 10s
             timeout: 5s
             retries: 5
             start_period: 5s
 
     redis:
-        image: redis:7
+        image: valkey/valkey:alpine
         restart: unless-stopped
         command:
             - redis-server
@@ -55,9 +59,9 @@ services:
         ports:
             - "${FORWARD_REDIS_PORT:-6379}:6379"
         volumes:
-            - redis_data:/data
+            - valkey_data:/data
         healthcheck:
-            test: ["CMD", "redis-cli", "ping"]
+            test: ["CMD", "valkey-cli", "ping"]
             interval: 10s
             timeout: 5s
             retries: 5
@@ -79,5 +83,5 @@ volumes:
     caddy_data:
     caddy_config:
     postgres_data:
-    redis_data:
+    valkey_data:
     bun_node_modules:
