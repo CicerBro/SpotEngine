@@ -159,11 +159,11 @@ SpotEngine uses [Laravel's task scheduler](https://laravel.com/docs/scheduling#r
 
 This runs the scheduler every minute, which in turn executes the configured jobs at their defined intervals:
 
-| Command | Schedule | Description |
-| --- | --- | --- |
-| `spot:retrieve` | Every 15 minutes | Discover and populate new spots |
-| `spot:search-sync` | Every minute | Reconcile pending spot changes with the configured external search index |
-| `spot:prune-cache` | Daily at 03:00 | Remove cached NZB/image files older than their configured retention |
+| Command            | Schedule         | Description                                                              |
+| ------------------ | ---------------- | ------------------------------------------------------------------------ |
+| `spot:retrieve`    | Every 15 minutes | Discover and populate new spots                                          |
+| `spot:search-sync` | Every minute     | Reconcile pending spot changes with the configured external search index |
+| `spot:prune-cache` | Daily at 03:00   | Remove cached NZB/image files older than their configured retention      |
 
 ### Production processes
 
@@ -230,4 +230,3 @@ vendor/bin/pint
 
 - [ ] Comments and reports are not handled; we currently do nothing with them
 - [ ] Add theme feature so users can write their own themes
-- [ ] Proper tests
