@@ -71,6 +71,7 @@ class EnrichSpots extends Command
         $enriched = 0;
         $failed = 0;
         $deleted = 0;
+        $cursorSpot = null;
 
         $progressBar = $this->createEnrichProgressBar($cap, $enriched, $failed, $deleted);
         $progressBar->start();
@@ -91,6 +92,26 @@ class EnrichSpots extends Command
                     ->whereNull('xml_signature')
                     ->select(['id', 'message_id', 'title', 'category_code', 'spot_posted_at']);
 
+                if ($cursorSpot instanceof Spot) {
+                    $query->where(function ($query) use ($cursorSpot, $orderDescending): void {
+                        if ($orderDescending) {
+                            $query->where('spot_posted_at', '<', $cursorSpot->spot_posted_at)
+                                ->orWhere(function ($query) use ($cursorSpot): void {
+                                    $query->where('spot_posted_at', $cursorSpot->spot_posted_at)
+                                        ->where('id', '<', $cursorSpot->id);
+                                });
+
+                            return;
+                        }
+
+                        $query->where('spot_posted_at', '>', $cursorSpot->spot_posted_at)
+                            ->orWhere(function ($query) use ($cursorSpot): void {
+                                $query->where('spot_posted_at', $cursorSpot->spot_posted_at)
+                                    ->where('id', '>', $cursorSpot->id);
+                            });
+                    });
+                }
+
                 if ($orderDescending) {
                     $query->orderByDesc('spot_posted_at')
                         ->orderByDesc('id');
@@ -108,6 +129,7 @@ class EnrichSpots extends Command
                     break;
                 }
 
+                $cursorSpot = $batch->last();
                 $messageIds = $batch->pluck('message_id')->all();
 
                 /** @var Collection<string, Spot> $spotsByMessageId */
