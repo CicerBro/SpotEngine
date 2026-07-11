@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Services\OverlappedSpotRetrieverService;
+use App\Services\AsyncSpotRetrieverService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
@@ -26,7 +26,7 @@ class RetrieveSpots extends Command implements Isolatable
     #[\Override]
     protected $isolated = true;
 
-    public function handle(OverlappedSpotRetrieverService $service): int
+    public function handle(AsyncSpotRetrieverService $service): int
     {
         ini_set('memory_limit', config('spotengine.retrieval.memory_limit'));
 

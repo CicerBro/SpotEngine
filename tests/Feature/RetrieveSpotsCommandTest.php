@@ -3,7 +3,7 @@
 declare(strict_types=1);
 
 use App\Console\Commands\RetrieveSpots;
-use App\Services\OverlappedSpotRetrieverService;
+use App\Services\AsyncSpotRetrieverService;
 use Illuminate\Console\CacheCommandMutex;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Config;
@@ -64,7 +64,7 @@ test('command accepts backfill option and still validates config', function () {
 test('command warns when forward new-to-old retrieval cannot checkpoint mid-run', function () {
     Config::set('spotengine.retrieval.forward_new_to_old', true);
 
-    $this->mock(OverlappedSpotRetrieverService::class, function ($mock): void {
+    $this->mock(AsyncSpotRetrieverService::class, function ($mock): void {
         $mock->shouldReceive('retrieve')->once()->andReturn([
             'processed' => 0,
             'inserted' => 0,
@@ -81,7 +81,7 @@ test('command warns when forward new-to-old retrieval cannot checkpoint mid-run'
 test('command does not warn about new-to-old checkpointing during backfill', function () {
     Config::set('spotengine.retrieval.forward_new_to_old', true);
 
-    $this->mock(OverlappedSpotRetrieverService::class, function ($mock): void {
+    $this->mock(AsyncSpotRetrieverService::class, function ($mock): void {
         $mock->shouldReceive('retrieve')->once()->andReturn([
             'processed' => 0,
             'inserted' => 0,
@@ -133,7 +133,7 @@ test('clear-lock succeeds when no locks are held', function () {
 test('command mentions long initial scans in new-to-old checkpoint warning', function () {
     Config::set('spotengine.retrieval.forward_new_to_old', true);
 
-    $this->mock(OverlappedSpotRetrieverService::class, function ($mock): void {
+    $this->mock(AsyncSpotRetrieverService::class, function ($mock): void {
         $mock->shouldReceive('retrieve')->once()->andReturn([
             'processed' => 0,
             'inserted' => 0,
