@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-use App\Services\OverlappedSpotRetrieverService;
+use App\Services\AsyncSpotRetrieverService;
 
 test('parent drains a large child payload before waiting for its exit', function () {
     if (! \function_exists('pcntl_fork')) {
-        $this->markTestSkipped('pcntl is required for the overlapped retriever.');
+        $this->markTestSkipped('pcntl is required for the async retriever.');
     }
 
     [$readPipe, $writePipe] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
@@ -35,7 +35,7 @@ test('parent drains a large child payload before waiting for its exit', function
     }
 
     fclose($writePipe);
-    $service = (new ReflectionClass(OverlappedSpotRetrieverService::class))->newInstanceWithoutConstructor();
+    $service = (new ReflectionClass(AsyncSpotRetrieverService::class))->newInstanceWithoutConstructor();
     $awaitChild = new ReflectionMethod($service, 'awaitUpsertChild');
     $startedAt = microtime(true);
 

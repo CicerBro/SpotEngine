@@ -20,7 +20,7 @@ use Illuminate\Support\Facades\DB;
  *
  * Falls back to synchronous execution if pcntl_fork is unavailable.
  */
-class OverlappedSpotRetrieverService extends SpotRetrieverService
+class AsyncSpotRetrieverService extends SpotRetrieverService
 {
     /**
      * @param  array<int, array{int, int}>  $batches

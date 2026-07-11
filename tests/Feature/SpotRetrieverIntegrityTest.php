@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 use App\Models\Spot;
 use App\Models\UsenetState;
+use App\Services\AsyncSpotRetrieverService;
 use App\Services\Nntp\Contracts\NntpDriverInterface;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
-use App\Services\OverlappedSpotRetrieverService;
 use App\Services\SpotMutationService;
 use App\Services\SpotRetrieverService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -55,7 +55,7 @@ test('interrupted newest-first retrieval leaves its checkpoint unchanged', funct
 
 test('forked upsert failures propagate before checkpointing', function () {
     if (! \function_exists('pcntl_fork')) {
-        $this->markTestSkipped('pcntl is required for the overlapped retriever.');
+        $this->markTestSkipped('pcntl is required for the async retriever.');
     }
 
     $state = new UsenetState([
@@ -64,7 +64,7 @@ test('forked upsert failures propagate before checkpointing', function () {
         'first_article_id' => 1,
         'last_backfilled_article_id' => 0,
     ]);
-    $service = new FailingOverlappedSpotRetriever;
+    $service = new FailingAsyncSpotRetriever;
     $service->setNntpDriver(Mockery::mock(NntpDriverInterface::class)->shouldIgnoreMissing());
 
     expect(fn () => $service->runForTest([[51, 60]], $state))
@@ -168,7 +168,7 @@ class IntegrityTestSpotRetriever extends SpotRetrieverService
     }
 }
 
-class FailingOverlappedSpotRetriever extends OverlappedSpotRetrieverService
+class FailingAsyncSpotRetriever extends AsyncSpotRetrieverService
 {
     public function __construct()
     {
