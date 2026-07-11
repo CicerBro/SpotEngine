@@ -162,6 +162,7 @@ class SpotParser
             'description' => null,
             'nzb_segments' => [],
             'image_segment' => null,
+            'image_segments' => [],
             'website' => null,
             'xml_signature' => null,
             'poster_key_id' => null,
@@ -301,10 +302,7 @@ class SpotParser
         // Parse NZB segments
         $nzbSegments = $this->parseNzbSegments($posting);
 
-        $imageSegment = null;
-        if (property_exists($posting->Image, 'Segment') && $posting->Image->Segment !== null) {
-            $imageSegment = (string) $posting->Image->Segment;
-        }
+        $imageSegments = $this->parseImageSegments($posting);
 
         // Build the spot array
         $spot = [
@@ -319,7 +317,8 @@ class SpotParser
             'category_code' => $category['main'],
             'subcategories' => $category['subs'],
             'file_size' => property_exists($posting, 'Size') && $posting->Size !== null ? (int) (string) $posting->Size : 0,
-            'image_segment' => $imageSegment,
+            'image_segment' => $imageSegments[0] ?? null,
+            'image_segments' => $imageSegments,
             'nzb_segments' => $nzbSegments,
             'spot_posted_at' => property_exists($posting, 'Created') && $posting->Created !== null
                 ? date('Y-m-d H:i:s', (int) (string) $posting->Created)
@@ -387,6 +386,28 @@ class SpotParser
                 if ($segmentId !== '' && $segmentId !== '0') {
                     $segments[] = $segmentId;
                 }
+            }
+        }
+
+        return $segments;
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function parseImageSegments(\SimpleXMLElement $posting): array
+    {
+        if (! property_exists($posting, 'Image') || $posting->Image === null) {
+            return [];
+        }
+
+        $segments = [];
+
+        foreach ($posting->Image->Segment ?? [] as $segment) {
+            $segmentId = trim((string) $segment, '<> ');
+
+            if ($segmentId !== '' && $segmentId !== '0' && ! strpbrk($segmentId, "\r\n")) {
+                $segments[] = $segmentId;
             }
         }
 

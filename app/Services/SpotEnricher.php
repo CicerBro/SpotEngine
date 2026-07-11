@@ -64,6 +64,7 @@ class SpotEnricher
             'description' => $parsed['description'] ?? null,
             'nzb_segments' => $parsed['nzb_segments'] ?? [],
             'image_segment' => $parsed['image_segment'] ?? null,
+            'image_segments' => $parsed['image_segments'] ?? [],
             'website' => $parsed['website'] ?? null,
             'xml_signature' => $parsed['xml_signature'] ?? '',
             'poster_key_id' => $parsed['poster_key_id'] ?? null,
@@ -111,6 +112,7 @@ class SpotEnricher
     {
         return $spot->xml_signature !== null
             || $spot->nzb_segments !== []
+            || $spot->image_segments !== []
             || $spot->image_segment !== null
             || $spot->description !== null;
     }

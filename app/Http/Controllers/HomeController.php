@@ -8,22 +8,24 @@ use App\Enums\SearchField;
 use App\Models\Category;
 use App\Models\Spot;
 use App\Services\ListingCacheService;
-use App\Services\Nntp\NntpService;
 use App\Services\NzbDownloadService;
 use App\Services\SpotEnricher;
+use App\Services\SpotImageService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\View\View;
 
 class HomeController extends Controller
 {
     public function __construct(
-        private readonly NntpService $nntpService,
+        private readonly SpotImageService $imageService,
         private readonly SpotEnricher $enricher,
         private readonly NzbDownloadService $nzbService,
         private readonly ListingCacheService $listingCache,
     ) {}
 
-    public function index(Request $request): \Illuminate\View\View
+    public function index(Request $request): View
     {
         $spots = $this->listingCache->remember($request, function () use ($request) {
             return Spot::query()
@@ -47,7 +49,7 @@ class HomeController extends Controller
         ]);
     }
 
-    public function show(Spot $spot): \Illuminate\View\View
+    public function show(Spot $spot): View
     {
         $this->enricher->enrich($spot);
 
@@ -102,95 +104,32 @@ class HomeController extends Controller
 
     public function getImage(Spot $spot): Response
     {
-        $this->enricher->enrich($spot);
-
-        if (! $spot->image_segment) {
-            return $this->placeholderImageResponse('No Image');
-        }
-
-        $cachePath = nestedCachePath(
-            (string) config('spotengine.cache.image_path'),
-            md5((string) $spot->image_segment),
-            'img',
-        );
-
-        if (file_exists($cachePath)) {
-            $imageData = file_get_contents($cachePath);
-
-            if ($imageData !== false) {
-                return $this->imageResponse($imageData);
-            }
-        }
-
         try {
-            $config = $this->nntpService->getConfig();
-            $nntp = $this->nntpService->makeDriver(driver: 'single');
-            $nntp->connect();
-
-            try {
-                $nntp->group($config['groups']['spots']);
-                $body = $nntp->body($spot->image_segment);
-            } finally {
-                try {
-                    $nntp->quit();
-                } catch (\Throwable) {
-                    // Ignore quit errors.
-                }
-            }
-
-            if ($body === '' || $body === '0') {
-                return $this->placeholderImageResponse('Load Failed');
-            }
-
-            $imageData = $this->decodeSpotImage($body);
-
-            if ($imageData === '' || $imageData === '0') {
-                return $this->placeholderImageResponse('Decode Failed');
-            }
-
-            $dir = dirname($cachePath);
-
-            if (! is_dir($dir)) {
-                mkdir($dir, 0755, true);
-            }
-
-            file_put_contents($cachePath, $imageData, LOCK_EX);
-
-            return $this->imageResponse($imageData);
+            $image = $this->imageService->fetch($spot);
         } catch (\Throwable) {
             return $this->placeholderImageResponse('Error');
         }
+
+        if ($image === null) {
+            return $this->placeholderImageResponse('No Image');
+        }
+
+        return $this->imageResponse($image['data'], $image['content_type']);
     }
 
-    public function categoriesJson(): \Illuminate\Http\JsonResponse
+    public function categoriesJson(): JsonResponse
     {
         return response()->json(Category::tree());
     }
 
-    private function decodeSpotImage(string $data): string
+    private function imageResponse(string $data, string $contentType): Response
     {
-        $data = str_replace(['=C', '=B', '=A', '=D'], ["\n", "\r", "\0", '='], $data);
-        $data = rtrim($data, "\r\n");
-
-        $decompressed = @gzinflate($data);
-        if ($decompressed !== false && $decompressed !== '') {
-            return $decompressed;
-        }
-
-        return $data;
-    }
-
-    private function imageResponse(string $data): Response
-    {
-        $contentType = match (true) {
-            str_starts_with($data, 'GIF') => 'image/gif',
-            str_starts_with($data, "\x89PNG") => 'image/png',
-            default => 'image/jpeg',
-        };
-
         return response($data, 200, [
             'Content-Type' => $contentType,
-            'Cache-Control' => 'public, max-age=2592000',
+            'Content-Length' => (string) strlen($data),
+            'Cache-Control' => 'public, max-age=2592000, immutable',
+            'ETag' => '"'.hash('sha256', $data).'"',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 
@@ -200,7 +139,8 @@ class HomeController extends Controller
 
         return response($svg, 200, [
             'Content-Type' => 'image/svg+xml',
-            'Cache-Control' => 'public, max-age=300',
+            'Cache-Control' => 'no-store',
+            'X-Content-Type-Options' => 'nosniff',
         ]);
     }
 }
