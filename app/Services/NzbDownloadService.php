@@ -8,6 +8,7 @@ use App\Models\Spot;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\NzbGenerator;
 use App\Services\Nntp\SingleNntpDriver;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class NzbDownloadService
 {
@@ -22,7 +23,7 @@ class NzbDownloadService
      * Enriches the spot first if needed, then checks the local cache before
      * falling back to an NNTP fetch.
      *
-     * @throws \Symfony\Component\HttpKernel\Exception\HttpException
+     * @throws HttpException
      */
     public function fetchNzb(Spot $spot): string
     {
@@ -42,16 +43,11 @@ class NzbDownloadService
 
         $config = $this->nntpService->getConfig();
         $nntp = $this->nntpService->makeDriver(driver: 'single');
-        $nntp->connect();
 
         try {
-            $nzb = $this->fetchNzbFromNntp($spot, $nntp, $config);
-        } finally {
-            try {
-                $nntp->quit();
-            } catch (\Throwable) {
-                // Ignore quit errors.
-            }
+            $nzb = $this->fetchWithConnectedDriver($spot, $nntp, $config);
+        } catch (\RuntimeException $primaryException) {
+            $nzb = $this->fetchFromAlternateProvider($spot, $config, $primaryException);
         }
 
         $this->writeToCache($cachePath, $nzb);
@@ -75,7 +71,12 @@ class NzbDownloadService
         }
 
         $config = $this->nntpService->getConfig();
-        $nzb = $this->fetchNzbFromNntp($spot, $nntp, $config);
+
+        try {
+            $nzb = $this->fetchNzbFromNntp($spot, $nntp, $config);
+        } catch (\RuntimeException $primaryException) {
+            $nzb = $this->fetchFromAlternateProvider($spot, $config, $primaryException);
+        }
 
         $this->writeToCache($cachePath, $nzb);
 
@@ -112,6 +113,33 @@ class NzbDownloadService
         $generator = new NzbGenerator($nntp);
 
         return $generator->fetchNzb($spot->nzb_segments, $config['groups']['nzb'] ?? $config['groups']['spots']);
+    }
+
+    /** @param array<string, mixed> $config */
+    private function fetchWithConnectedDriver(Spot $spot, SingleNntpDriver $nntp, array $config): string
+    {
+        try {
+            $nntp->connect();
+
+            return $this->fetchNzbFromNntp($spot, $nntp, $config);
+        } finally {
+            $nntp->quit();
+        }
+    }
+
+    /** @param array<string, mixed> $config */
+    private function fetchFromAlternateProvider(
+        Spot $spot,
+        array $config,
+        \RuntimeException $primaryException,
+    ): string {
+        $alternate = $this->nntpService->makeAlternateDriver();
+
+        if (! $alternate instanceof SingleNntpDriver) {
+            throw $primaryException;
+        }
+
+        return $this->fetchWithConnectedDriver($spot, $alternate, $config);
     }
 
     private function writeToCache(string $cachePath, string $data): void

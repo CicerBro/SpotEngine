@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\Nntp\NntpConnectionConfig;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\ParallelNntpDriver;
 use App\Services\Nntp\SingleNntpDriver;
@@ -58,6 +59,29 @@ test('getConfig returns the config array', function () {
     $service = new NntpService($config);
 
     expect($service->getConfig())->toBe($config);
+});
+
+test('typed connection config includes an optional alternate endpoint', function () {
+    $config = nntpConfig();
+    $config['alternate'] = [
+        'host' => 'alternate.test',
+        'port' => 119,
+        'ssl' => false,
+        'username' => 'backup',
+        'password' => 'secret',
+        'timeout' => 5,
+    ];
+
+    $typedConfig = NntpConnectionConfig::fromArray($config);
+    $service = new NntpService($config);
+
+    expect($typedConfig->primary->host)->toBe('localhost')
+        ->and($typedConfig->alternate?->host)->toBe('alternate.test')
+        ->and($service->makeAlternateDriver())->toBeInstanceOf(SingleNntpDriver::class);
+});
+
+test('alternate driver is absent when no alternate endpoint is configured', function () {
+    expect((new NntpService(nntpConfig()))->makeAlternateDriver())->toBeNull();
 });
 
 test('NntpService is resolved from the container', function () {

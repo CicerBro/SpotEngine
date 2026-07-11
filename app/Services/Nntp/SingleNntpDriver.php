@@ -21,43 +21,60 @@ class SingleNntpDriver implements NntpDriverInterface
 
     private bool $compressionEnabled = false;
 
-    private ?string $lastResponse = null;
+    private ?NntpResponse $lastResponse = null;
 
     private int $readBufferSize = 65536;
 
+    private ?NntpProtocol $protocol = null;
+
+    private readonly NntpEndpoint $endpoint;
+
     public function __construct(
-        private readonly string $host,
-        private readonly int $port = 563,
-        private readonly bool $ssl = true,
+        string $host,
+        int $port = 563,
+        bool $ssl = true,
         private readonly string $username = '',
         private readonly string $password = '',
         private readonly int $timeout = 60,
-    ) {}
+        bool $verifyPeer = true,
+        bool $allowSelfSigned = false,
+    ) {
+        $this->endpoint = new NntpEndpoint(
+            host: $host,
+            port: $port,
+            ssl: $ssl,
+            username: $username,
+            password: $password,
+            timeout: $timeout,
+            verifyPeer: $verifyPeer,
+            allowSelfSigned: $allowSelfSigned,
+        );
+    }
 
     /** @param array<string, mixed> $config */
     public static function fromConfig(array $config): self
     {
+        return self::fromEndpoint(NntpEndpoint::fromArray($config));
+    }
+
+    public static function fromEndpoint(NntpEndpoint $endpoint): self
+    {
         return new self(
-            $config['host'],
-            (int) $config['port'],
-            (bool) $config['ssl'],
-            $config['username'] ?? '',
-            $config['password'] ?? '',
-            (int) ($config['timeout'] ?? 60)
+            $endpoint->host,
+            $endpoint->port,
+            $endpoint->ssl,
+            $endpoint->username,
+            $endpoint->password,
+            $endpoint->timeout,
+            $endpoint->verifyPeer,
+            $endpoint->allowSelfSigned,
         );
     }
 
     public function connect(bool $showProgress = true): void
     {
-        $protocol = $this->ssl ? 'ssl' : 'tcp';
-        $address = "$protocol://{$this->host}:{$this->port}";
-
-        $context = stream_context_create([
-            'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-            ],
-        ]);
+        $address = $this->endpoint->address();
+        $context = stream_context_create($this->endpoint->streamContextOptions());
 
         $this->socket = @stream_socket_client(
             $address,
@@ -74,11 +91,12 @@ class SingleNntpDriver implements NntpDriverInterface
 
         stream_set_timeout($this->socket, $this->timeout);
         stream_set_read_buffer($this->socket, $this->readBufferSize);
+        $this->protocol = NntpProtocol::forResource($this->socket, $this->readBufferSize);
 
         $response = $this->readResponse();
 
-        if (! str_starts_with($response, '200') && ! str_starts_with($response, '201')) {
-            throw new NntpException("Unexpected greeting: $response");
+        if (! $response->is(ResponseCode::ReadyPostingAllowed, ResponseCode::ReadyPostingProhibited)) {
+            throw NntpException::unexpected('connect', $response);
         }
 
         if ($this->username !== '' && $this->username !== '0') {
@@ -93,13 +111,13 @@ class SingleNntpDriver implements NntpDriverInterface
         $this->sendCommand("AUTHINFO USER {$this->username}");
         $response = $this->readResponse();
 
-        if (str_starts_with($response, '381')) {
+        if ($response->is(ResponseCode::AuthenticationContinue)) {
             $this->sendCommand("AUTHINFO PASS {$this->password}");
             $response = $this->readResponse();
         }
 
-        if (! str_starts_with($response, '281')) {
-            throw new NntpException("Authentication failed: $response");
+        if (! $response->is(ResponseCode::AuthenticationAccepted)) {
+            throw NntpException::unexpected('AUTHINFO', $response);
         }
     }
 
@@ -117,7 +135,7 @@ class SingleNntpDriver implements NntpDriverInterface
             $this->sendCommand('XFEATURE COMPRESS GZIP');
             $response = $this->readResponse();
 
-            if (str_starts_with($response, '290')) {
+            if ($response->is(ResponseCode::CompressionEnabled)) {
                 $this->compressionEnabled = true;
 
                 return true;
@@ -142,17 +160,17 @@ class SingleNntpDriver implements NntpDriverInterface
         $this->sendCommand("GROUP $groupName");
         $response = $this->readResponse();
 
-        if (! str_starts_with($response, '211')) {
-            throw new NntpException("Failed to select group $groupName: $response");
+        if (! $response->is(ResponseCode::GroupSelected)) {
+            throw NntpException::unexpected("GROUP {$groupName}", $response);
         }
 
-        $parts = explode(' ', $response);
+        $parts = explode(' ', $response->statusText);
 
         return [
-            'count' => (int) ($parts[1] ?? 0),
-            'first' => (int) ($parts[2] ?? 0),
-            'last' => (int) ($parts[3] ?? 0),
-            'group' => $parts[4] ?? $groupName,
+            'count' => (int) $parts[0],
+            'first' => (int) ($parts[1] ?? 0),
+            'last' => (int) ($parts[2] ?? 0),
+            'group' => $parts[3] ?? $groupName,
         ];
     }
 
@@ -162,8 +180,8 @@ class SingleNntpDriver implements NntpDriverInterface
         $this->sendCommand("XOVER $start-$end");
         $response = $this->readResponse();
 
-        if (! str_starts_with($response, '224')) {
-            throw new NntpException("XOVER failed: $response");
+        if (! $response->is(ResponseCode::OverviewFollows)) {
+            throw NntpException::unexpected('XOVER', $response);
         }
 
         $lines = $this->getTextResponse();
@@ -175,7 +193,7 @@ class SingleNntpDriver implements NntpDriverInterface
             }
 
             // XOVER format: num\tsubject\tfrom\tdate\tmessage-id\treferences\tbytes\tlines
-            $parts = explode("\t", $line);
+            $parts = explode("\t", (string) $line);
 
             if (\count($parts) >= 5) {
                 $articles[(int) $parts[0]] = [
@@ -203,20 +221,25 @@ class SingleNntpDriver implements NntpDriverInterface
             $this->sendCommand($cmd);
             $response = $this->readResponse();
 
-            if (str_starts_with($response, '221') || str_starts_with($response, '225')) {
+            if ($response->is(ResponseCode::HeadFollows, ResponseCode::HeaderFollows)) {
                 $success = true;
                 break;
             }
 
-            if (str_starts_with($response, '500') || str_starts_with($response, '501') || str_starts_with($response, '400')) {
+            if ($response->is(ResponseCode::UnknownCommand, ResponseCode::SyntaxError, ResponseCode::ServiceDiscontinued)) {
                 continue;
             }
 
-            throw new NntpException("Header fetch failed: $response");
+            throw NntpException::unexpected($cmd, $response);
         }
 
         if (! $success) {
-            throw new NntpException("Neither XHDR nor HDR supported: $response");
+            throw new NntpException(
+                'Neither XHDR nor HDR is supported',
+                $response->codeValue(),
+                $response->statusText,
+                'XHDR',
+            );
         }
 
         $lines = $this->getTextResponse();
@@ -227,11 +250,11 @@ class SingleNntpDriver implements NntpDriverInterface
                 continue;
             }
 
-            $spacePos = strpos($line, ' ');
+            $spacePos = strpos((string) $line, ' ');
 
             if ($spacePos !== false) {
-                $articleNum = (int) substr($line, 0, $spacePos);
-                $value = substr($line, $spacePos + 1);
+                $articleNum = (int) substr((string) $line, 0, $spacePos);
+                $value = substr((string) $line, $spacePos + 1);
 
                 if ($value !== '(none)' && $value !== '') {
                     $results[$articleNum] = $this->decodeHeader($value);
@@ -287,51 +310,11 @@ class SingleNntpDriver implements NntpDriverInterface
         $this->sendCommand("HEAD $id");
         $response = $this->readResponse();
 
-        if (! str_starts_with($response, '221')) {
-            throw new NntpException("HEAD failed: $response");
+        if (! $response->is(ResponseCode::HeadFollows)) {
+            throw NntpException::unexpected('HEAD', $response);
         }
 
-        $headers = [];
-        $currentHeader = '';
-        $currentValue = '';
-
-        while (true) {
-            $line = $this->readLine();
-
-            if ($line === '.' || $line === false) {
-                break;
-            }
-
-            if (preg_match('/^\s+/', $line)) {
-                $currentValue .= trim($line);
-
-                continue;
-            }
-
-            $colonPos = strpos($line, ':');
-
-            if ($colonPos !== false) {
-                $headerName = strtolower(substr($line, 0, $colonPos));
-                $headerValue = trim(substr($line, $colonPos + 1));
-
-                if ($headerName === $currentHeader) {
-                    $currentValue .= $headerValue;
-                } else {
-                    if ($currentHeader !== '' && $currentHeader !== '0') {
-                        $headers[$currentHeader] = $this->decodeHeader($currentValue);
-                    }
-
-                    $currentHeader = $headerName;
-                    $currentValue = $headerValue;
-                }
-            }
-        }
-
-        if ($currentHeader !== '' && $currentHeader !== '0') {
-            $headers[$currentHeader] = $this->decodeHeader($currentValue);
-        }
-
-        return $headers;
+        return (new SpotnetHeaderParser)->parse($this->getTextResponse());
     }
 
     /**
@@ -345,61 +328,18 @@ class SingleNntpDriver implements NntpDriverInterface
         $this->sendCommand("ARTICLE $id");
         $response = $this->readResponse();
 
-        if (! str_starts_with($response, '220')) {
-            throw new NntpException("ARTICLE failed: $response");
+        if (! $response->is(ResponseCode::ArticleFollows)) {
+            throw NntpException::unexpected('ARTICLE', $response);
         }
 
-        $headers = [];
-        $body = '';
-        $inHeaders = true;
-        $currentHeader = '';
-        $currentValue = '';
-
-        while (true) {
-            $line = $this->readLine();
-
-            if ($line === '.' || $line === false) {
-                break;
-            }
-
-            if (str_starts_with($line, '..')) {
-                $line = substr($line, 1);
-            }
-
-            if ($inHeaders) {
-                if ($line === '') {
-                    if ($currentHeader !== '' && $currentHeader !== '0') {
-                        $headers[$currentHeader] = $this->decodeHeader($currentValue);
-                    }
-                    $inHeaders = false;
-
-                    continue;
-                }
-
-                if (preg_match('/^\s+/', $line)) {
-                    $currentValue .= ' '.trim($line);
-
-                    continue;
-                }
-
-                if ($currentHeader !== '' && $currentHeader !== '0') {
-                    $headers[$currentHeader] = $this->decodeHeader($currentValue);
-                }
-
-                $colonPos = strpos($line, ':');
-
-                if ($colonPos !== false) {
-                    $currentHeader = strtolower(substr($line, 0, $colonPos));
-                    $currentValue = trim(substr($line, $colonPos + 1));
-                }
-            } else {
-                $body .= $line."\n";
-            }
-        }
+        $lines = $this->getTextResponse();
+        $separator = array_search('', $lines, true);
+        $headerLines = $separator === false ? $lines : array_slice($lines, 0, $separator);
+        $bodyLines = $separator === false ? [] : array_slice($lines, $separator + 1);
 
         return [
-            'headers' => $headers,
-            'body' => rtrim($body),
+            'headers' => (new SpotnetHeaderParser)->parse($headerLines),
+            'body' => implode("\n", $bodyLines),
         ];
     }
 
@@ -423,33 +363,11 @@ class SingleNntpDriver implements NntpDriverInterface
         $this->sendCommand("BODY $id");
         $response = $this->readResponse();
 
-        if (! str_starts_with($response, '222')) {
-            throw new NntpException("BODY failed for $id: $response");
+        if (! $response->is(ResponseCode::BodyFollows)) {
+            throw NntpException::unexpected("BODY {$id}", $response);
         }
 
-        $body = '';
-
-        while (true) {
-            $line = fgets($this->socket, 65536);
-
-            if ($line === false) {
-                break;
-            }
-
-            $line = rtrim($line, "\r\n");
-
-            if ($line === '.') {
-                break;
-            }
-
-            if (str_starts_with($line, '..')) {
-                $line = substr($line, 1);
-            }
-
-            $body .= $line;
-        }
-
-        return $body;
+        return $this->protocol()->readBodyResponse();
     }
 
     public function quit(): void
@@ -464,6 +382,7 @@ class SingleNntpDriver implements NntpDriverInterface
 
             fclose($this->socket);
             $this->socket = null;
+            $this->protocol = null;
         }
     }
 
@@ -477,6 +396,7 @@ class SingleNntpDriver implements NntpDriverInterface
         if ($this->socket !== null) {
             fclose($this->socket);
             $this->socket = null;
+            $this->protocol = null;
         }
     }
 
@@ -492,121 +412,37 @@ class SingleNntpDriver implements NntpDriverInterface
 
     private function getTextResponse(): array
     {
-        if ($this->compressionEnabled && $this->lastResponse &&
-            stripos($this->lastResponse, 'COMPRESS=GZIP') !== false) {
+        if ($this->compressionEnabled && $this->lastResponse instanceof NntpResponse &&
+            stripos($this->lastResponse->statusText, 'COMPRESS=GZIP') !== false) {
             return $this->getCompressedTextResponse();
         }
 
-        $lines = [];
-
-        while (true) {
-            $line = $this->readLine();
-
-            if ($line === '.' || $line === false) {
-                break;
-            }
-
-            if (str_starts_with($line, '..')) {
-                $line = substr($line, 1);
-            }
-
-            $lines[] = $line;
-        }
-
-        return $lines;
+        return $this->protocol()->readTextResponse();
     }
 
     /** @return array<string> */
     private function getCompressedTextResponse(): array
     {
-        $data = '';
-        $possibleEnd = false;
-
-        while (! feof($this->socket)) {
-            if ($possibleEnd) {
-                stream_set_blocking($this->socket, false);
-                $buffer = fgets($this->socket, $this->readBufferSize);
-                stream_set_blocking($this->socket, true);
-
-                if (in_array($buffer, ['', '0', false], true)) {
-                    break;
-                }
-
-                $possibleEnd = false;
-                $data .= $buffer;
-
-                if (str_ends_with($buffer, ".\r\n")) {
-                    $possibleEnd = true;
-                }
-
-                continue;
-            }
-
-            $buffer = fgets($this->socket, $this->readBufferSize);
-
-            if ($buffer === false) {
-                break;
-            }
-
-            $data .= $buffer;
-
-            if (str_ends_with($buffer, ".\r\n")) {
-                $possibleEnd = true;
-            }
-        }
-
-        if (str_ends_with($data, ".\r\n")) {
-            $data = substr($data, 0, -3);
-        }
-
-        $decompressed = @gzuncompress($data);
-
-        if ($decompressed === false) {
-            $decompressed = $data;
-        }
-
-        return explode("\r\n", trim($decompressed));
+        return $this->protocol()->readCompressedTextResponse();
     }
 
     private function sendCommand(string $command): void
+    {
+        $this->protocol()->writeCommand($command);
+    }
+
+    private function readResponse(): NntpResponse
+    {
+        return $this->lastResponse = $this->protocol()->readResponse();
+    }
+
+    private function protocol(): NntpProtocol
     {
         if (! $this->socket) {
             throw new NntpException('Not connected');
         }
 
-        $result = fwrite($this->socket, "$command\r\n");
-
-        if ($result === false) {
-            throw new NntpException('Failed to send command');
-        }
-    }
-
-    private function readResponse(): string
-    {
-        $line = $this->readLine();
-
-        if ($line === false) {
-            throw new NntpException('Connection closed by server');
-        }
-
-        $this->lastResponse = $line;
-
-        return $line;
-    }
-
-    private function readLine(): string|false
-    {
-        if (! $this->socket) {
-            return false;
-        }
-
-        $line = fgets($this->socket, $this->readBufferSize);
-
-        if ($line === false) {
-            return false;
-        }
-
-        return rtrim($line, "\r\n");
+        return $this->protocol ??= NntpProtocol::forResource($this->socket, $this->readBufferSize);
     }
 
     private function decodeHeader(string $header): string

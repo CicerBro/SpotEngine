@@ -8,8 +8,13 @@ use App\Services\Nntp\Contracts\NntpDriverInterface;
 
 class NntpService
 {
+    private readonly NntpConnectionConfig $connectionConfig;
+
     /** @param array<string, mixed> $config */
-    public function __construct(private readonly array $config) {}
+    public function __construct(private readonly array $config)
+    {
+        $this->connectionConfig = NntpConnectionConfig::fromArray($config);
+    }
 
     /**
      * Create an NNTP driver instance.
@@ -21,14 +26,25 @@ class NntpService
      */
     public function makeDriver(?int $connections = null, ?string $driver = null): NntpDriverInterface
     {
-        $driverType = $driver ?? ($this->config['driver'] ?? 'parallel');
-        $numConnections = $connections ?? $this->config['connections'];
+        $driverType = $driver ?? $this->connectionConfig->driver;
+        $numConnections = $connections ?? $this->connectionConfig->connections;
 
         return match ($driverType) {
             'parallel' => new ParallelNntpDriver($this->config, $numConnections),
-            'single' => SingleNntpDriver::fromConfig($this->config),
+            'single' => SingleNntpDriver::fromEndpoint($this->connectionConfig->primary),
             default => throw new \InvalidArgumentException("Unknown NNTP driver: {$driverType}"),
         };
+    }
+
+    public function makeAlternateDriver(): ?SingleNntpDriver
+    {
+        $endpoint = $this->connectionConfig->alternate;
+
+        if (! $endpoint instanceof NntpEndpoint || $endpoint->host === '') {
+            return null;
+        }
+
+        return SingleNntpDriver::fromEndpoint($endpoint);
     }
 
     /** @return array<string, mixed> */
