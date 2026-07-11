@@ -11,7 +11,7 @@
         "nntp",
         "nzb"
     ],
-    "license": "MIT",
+    "license": "PolyForm-Noncommercial-1.0.0",
     "require": {
         "php": "^8.5",
         "laravel/fortify": "^1.37",
