@@ -9,6 +9,7 @@ use App\Enums\SearchField;
 use App\Services\BbCodeParsingService;
 use App\Services\Search\Contracts\SearchDriver;
 use Carbon\CarbonImmutable;
+use Database\Factories\SpotFactory;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -34,6 +35,7 @@ use Illuminate\Support\Collection;
  * @property CarbonImmutable $spot_posted_at
  * @property string|null $xml_signature
  * @property bool $is_verified
+ * @property bool $has_nzb
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable $updated_at
  * @property-read Category|null $category
@@ -46,7 +48,7 @@ use Illuminate\Support\Collection;
  */
 class Spot extends Model
 {
-    /** @use HasFactory<\Database\Factories\SpotFactory> */
+    /** @use HasFactory<SpotFactory> */
     use HasFactory;
 
     private bool $hasCachedDescriptionHtml = false;

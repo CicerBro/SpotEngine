@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Services\Search\Drivers;
 
+use App\Data\SpotSearchCriteria;
 use App\Enums\SearchField;
 use App\Models\Spot;
 use App\Services\Search\Contracts\SearchDriver;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
  * PostgreSQL FTS search driver.
@@ -35,6 +37,72 @@ class DatabaseSearchDriver implements SearchDriver
 
     private const string BOTH_VEC = "to_tsvector('english', title || ' ' || COALESCE(description, ''))";
 
+    public function paginate(SpotSearchCriteria $criteria): LengthAwarePaginator
+    {
+        $term = trim((string) $criteria->term);
+        $query = $this->listingQuery();
+
+        if ($criteria->category !== null && $criteria->category !== '') {
+            $query->inCategory($criteria->category);
+        }
+
+        if ($criteria->subcategories !== []) {
+            $query->withSubcategory($criteria->subcategories);
+        }
+
+        if ($criteria->termVariants !== []) {
+            $this->searchVariants($query, $criteria->termVariants, $criteria->field);
+        } elseif ($term !== '') {
+            $this->search($query, $term, $criteria->field);
+        }
+
+        foreach ($criteria->metadataTermGroups as $metadataTerms) {
+            $this->whereMetadataContainsAny($query, $metadataTerms);
+        }
+
+        $query
+            ->orderByDesc('spot_posted_at')
+            ->orderByDesc('id');
+
+        if ($criteria->offset === null) {
+            return $query->paginate(
+                $criteria->perPage,
+                ['*'],
+                $criteria->pageName,
+                $criteria->page,
+            );
+        }
+
+        $offset = max(0, $criteria->offset);
+        $total = (clone $query)->count();
+        $spots = $query
+            ->offset($offset)
+            ->limit($criteria->perPage)
+            ->get();
+
+        return new LengthAwarePaginator(
+            $spots,
+            $total,
+            $criteria->perPage,
+            intdiv($offset, $criteria->perPage) + 1,
+            [
+                'path' => LengthAwarePaginator::resolveCurrentPath(),
+                'pageName' => $criteria->pageName,
+            ],
+        );
+    }
+
+    /**
+     * @return Builder<Spot>
+     */
+    private function listingQuery(): Builder
+    {
+        return Spot::query()
+            ->select(['id', 'title', 'description', 'poster', 'file_size', 'spot_posted_at', 'category_code', 'subcategories'])
+            ->selectRaw("(nzb_segments <> '[]'::jsonb) AS has_nzb")
+            ->with('category:code,name,slug');
+    }
+
     public function search(Builder $query, string $term, SearchField $field = SearchField::Title): Builder
     {
         return match ($field) {
@@ -59,9 +127,69 @@ class DatabaseSearchDriver implements SearchDriver
         });
     }
 
-    public function indexSpot(Spot $spot): void {}
+    /**
+     * @param  list<string>  $terms
+     */
+    private function whereMetadataContainsAny(Builder $query, array $terms): Builder
+    {
+        return $query->where(function (Builder $metadataQuery) use ($terms): void {
+            foreach ($terms as $term) {
+                $pattern = '%'.$term.'%';
 
-    public function deleteSpot(int $id): void {}
+                $metadataQuery->orWhere(function (Builder $termQuery) use ($pattern): void {
+                    $termQuery
+                        ->whereRaw('website ILIKE ?', [$pattern])
+                        ->orWhereRaw('description ILIKE ?', [$pattern])
+                        ->orWhereRaw('title ILIKE ?', [$pattern]);
+                });
+            }
+        });
+    }
+
+    public function indexSpot(Spot $spot): void
+    {
+        //
+    }
+
+    public function deleteSpot(int $id): void
+    {
+        //
+    }
+
+    public function usesExternalIndex(): bool
+    {
+        return false;
+    }
+
+    public function ensureIndex(): void
+    {
+        //
+    }
+
+    public function truncateIndex(): void
+    {
+        //
+    }
+
+    public function indexSpots(iterable $spots): void
+    {
+        //
+    }
+
+    public function deleteSpots(array $ids): void
+    {
+        //
+    }
+
+    public function indexedDocumentCount(): int
+    {
+        return 0;
+    }
+
+    public function findIndexedIds(array $ids): array
+    {
+        return [];
+    }
 
     /**
      * Title search against idx_spots_fts_title_simple.
