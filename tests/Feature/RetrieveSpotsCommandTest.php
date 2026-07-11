@@ -2,7 +2,10 @@
 
 declare(strict_types=1);
 
+use App\Console\Commands\RetrieveSpots;
 use App\Services\OverlappedSpotRetrieverService;
+use Illuminate\Console\CacheCommandMutex;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Config;
 
 beforeEach(function () {
@@ -89,6 +92,42 @@ test('command does not warn about new-to-old checkpointing during backfill', fun
     $this->artisan('spot:retrieve', ['--backfill' => true])
         ->assertSuccessful()
         ->doesntExpectOutputToContain('RETRIEVAL_FORWARD_NEW_TO_OLD');
+});
+
+test('clear-lock releases stuck command isolation lock', function () {
+    $command = app(RetrieveSpots::class);
+    $mutex = app(CacheCommandMutex::class);
+
+    expect($mutex->create($command))->toBeTrue();
+
+    $this->artisan('spot:retrieve', ['--clear-lock' => true])
+        ->assertSuccessful()
+        ->expectsOutputToContain('Released the command isolation lock');
+
+    expect($mutex->exists($command))->toBeFalse();
+});
+
+test('clear-lock releases scheduler overlap lock for spot retrieve', function () {
+    $schedule = app(Schedule::class);
+    $event = collect($schedule->events())->first(
+        fn ($event) => str_contains((string) ($event->command ?? ''), 'spot:retrieve'),
+    );
+
+    expect($event)->not->toBeNull();
+    expect($event->mutex->create($event))->toBeTrue();
+
+    $this->artisan('spot:retrieve', ['--clear-lock' => true])
+        ->assertSuccessful()
+        ->expectsOutputToContain('Released the scheduler overlap lock');
+
+    expect($event->mutex->exists($event))->toBeFalse();
+});
+
+test('clear-lock succeeds when no locks are held', function () {
+    $this->artisan('spot:retrieve', ['--clear-lock' => true])
+        ->assertSuccessful()
+        ->expectsOutputToContain('No command isolation lock was found')
+        ->expectsOutputToContain('No scheduler overlap lock was found');
 });
 
 test('command mentions long initial scans in new-to-old checkpoint warning', function () {
