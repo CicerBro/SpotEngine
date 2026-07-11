@@ -8,6 +8,7 @@ use App\Data\SpotSearchCriteria;
 use App\Enums\SearchField;
 use App\Models\Category;
 use App\Models\Spot;
+use App\Models\User;
 use App\Services\ListingCacheService;
 use App\Services\Nntp\NntpService;
 use App\Services\NzbDownloadService;
@@ -97,9 +98,17 @@ class HomeController extends Controller
         ]);
     }
 
-    public function getNzb(Spot $spot): Response
+    public function getNzb(Request $request, Spot $spot): Response
     {
         $nzb = $this->nzbService->fetchNzb($spot);
+        $user = $request->user();
+
+        if ($user instanceof User) {
+            $user->downloads()->updateOrCreate(
+                ['spot_id' => $spot->id],
+                ['downloaded_at' => now()],
+            );
+        }
 
         return response($nzb, 200, [
             'Content-Type' => 'application/x-nzb',

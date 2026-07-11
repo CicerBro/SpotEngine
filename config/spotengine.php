@@ -76,6 +76,10 @@ return [
         'ttl' => (int) env('LISTING_CACHE_TTL', 30), // minutes
     ],
 
+    'newznab' => [
+        'rate_limit_per_minute' => (int) env('NEWZNAB_RATE_LIMIT_PER_MINUTE', 60),
+    ],
+
     /** Whether new user registration is allowed. */
     'registration_open' => (bool) env('REGISTRATION_OPEN', true),
 ];

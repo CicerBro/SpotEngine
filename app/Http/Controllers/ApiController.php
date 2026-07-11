@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
-use App\Enums\SearchField;
+use App\Data\SpotSearchCriteria;
 use App\Models\Spot;
 use App\Models\User;
 use App\Services\NzbDownloadService;
@@ -17,7 +17,10 @@ use Illuminate\Http\Response;
  */
 class ApiController extends Controller
 {
-    public function __construct(private readonly NzbDownloadService $nzbService) {}
+    public function __construct(
+        private readonly NzbDownloadService $nzbService,
+        private readonly SearchDriver $searchDriver,
+    ) {}
 
     public function handle(Request $request): Response
     {
@@ -28,7 +31,7 @@ class ApiController extends Controller
             'register', 'r' => $this->apiError(501, 'Registration via API is not available'),
             default => null,
         };
-        if ($noAuthResponse !== null) {
+        if ($noAuthResponse instanceof Response) {
             return $noAuthResponse;
         }
 
@@ -44,7 +47,7 @@ class ApiController extends Controller
             'tvsearch' => $this->tvSearch($request, $user),
             'movie', 'moviesearch' => $this->movieSearch($request, $user),
             'details', 'd' => $this->details($request, $user),
-            'get', 'g', 'getnzb' => $this->getNzb($request),
+            'get', 'g', 'getnzb' => $this->getNzb($request, $user),
         };
     }
 
@@ -55,7 +58,7 @@ class ApiController extends Controller
         <?xml version="1.0" encoding="UTF-8"?>
         <caps>
           <server version="0.1" title="SpotEngine" strapline="Spotnet Web Client" url="{$baseUrl}" type="newznab"/>
-          <limits max="250" default="100"/>
+          <limits max="100" default="50"/>
           <registration available="no" open="no"/>
           <searching>
             <search available="yes" supportedParams="q"/>
@@ -117,17 +120,17 @@ class ApiController extends Controller
 
     private function search(Request $request, User $user): Response
     {
-        $query = $request->input('q', '');
+        $query = trim((string) $request->input('q', ''));
         $limit = min(100, max(1, (int) $request->input('limit', 50)));
         $offset = max(0, (int) $request->input('offset', 0));
-        $page = (int) floor($offset / $limit) + 1;
-
-        $spots = Spot::query()
-            ->with('category')
-            ->when($request->filled('cat'), fn ($q) => $q->inCategory($this->mapNewznabCategory($request->cat)))
-            ->when($query, fn ($q) => $q->search($query, SearchField::Title))
-            ->latestFirst()
-            ->paginate($limit, ['*'], 'page', $page);
+        $spots = $this->searchDriver->paginate(new SpotSearchCriteria(
+            term: $query !== '' ? $query : null,
+            category: $request->filled('cat')
+                ? $this->mapNewznabCategory((string) $request->input('cat'))
+                : null,
+            perPage: $limit,
+            offset: $offset,
+        ));
 
         return $this->rssResponse($spots->items(), $user, $spots->total(), $offset);
     }
@@ -138,40 +141,56 @@ class ApiController extends Controller
         $season = $request->input('season', '');
         $episode = $request->input('ep', '');
         $limit = min(100, max(1, (int) $request->input('limit', 50)));
+        $offset = max(0, (int) $request->input('offset', 0));
 
         $searchVariants = $this->buildTvSearchVariants($query, $season, $episode);
-        $searchDriver = app(SearchDriver::class);
+        $metadataTermGroups = [];
 
-        /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $spots */
-        $spots = Spot::query()
-            ->with('category')
-            ->inCategory('01')
-            ->when(
-                $searchVariants !== [],
-                fn ($q) => $searchDriver->searchVariants($q, $searchVariants, SearchField::Title)
-            )
-            ->orderBy('spot_posted_at', 'desc')
-            ->limit($limit)
-            ->get();
+        if ($request->filled('tvmazeid')) {
+            $metadataTermGroups[] = $this->tvIdentifierTerms(
+                'tvmaze',
+                (string) $request->input('tvmazeid'),
+            );
+        }
 
-        return $this->rssResponse($spots->all(), $user);
+        if ($request->filled('rid')) {
+            $metadataTermGroups[] = $this->tvIdentifierTerms(
+                'tvrage',
+                (string) $request->input('rid'),
+            );
+        }
+
+        $spots = $this->searchDriver->paginate(new SpotSearchCriteria(
+            category: '01',
+            subcategories: ['01z01'],
+            perPage: $limit,
+            termVariants: $searchVariants,
+            metadataTermGroups: $metadataTermGroups,
+            offset: $offset,
+        ));
+
+        return $this->rssResponse($spots->items(), $user, $spots->total(), $offset);
     }
 
-    // TODO: Use the IMDB ID parameter to search for movies. Now it just returns all movies.
     private function movieSearch(Request $request, User $user): Response
     {
-        $query = $request->input('q', '');
+        $query = trim((string) $request->input('q', ''));
         $limit = min(100, max(1, (int) $request->input('limit', 50)));
+        $offset = max(0, (int) $request->input('offset', 0));
 
-        $spots = Spot::query()
-            ->with('category')
-            ->inCategory('01')
-            ->when($query, fn ($q) => $q->search($query, SearchField::Title))
-            ->latestFirst()
-            ->limit($limit)
-            ->get();
+        $metadataTermGroups = $request->filled('imdbid')
+            ? [$this->imdbIdentifierTerms((string) $request->input('imdbid'))]
+            : [];
+        $spots = $this->searchDriver->paginate(new SpotSearchCriteria(
+            term: $query !== '' ? $query : null,
+            category: '01',
+            subcategories: ['01z00'],
+            perPage: $limit,
+            metadataTermGroups: $metadataTermGroups,
+            offset: $offset,
+        ));
 
-        return $this->rssResponse($spots->all(), $user);
+        return $this->rssResponse($spots->items(), $user, $spots->total(), $offset);
     }
 
     private function details(Request $request, User $user): Response
@@ -181,10 +200,14 @@ class ApiController extends Controller
         return $this->rssResponse([$spot], $user);
     }
 
-    private function getNzb(Request $request): Response
+    private function getNzb(Request $request, User $user): Response
     {
         $spot = Spot::findOrFail((int) $request->input('id'));
         $nzb = $this->nzbService->fetchNzb($spot);
+        $user->downloads()->updateOrCreate(
+            ['spot_id' => $spot->id],
+            ['downloaded_at' => now()],
+        );
 
         return response($nzb, 200, [
             'Content-Type' => 'application/x-nzb',
@@ -192,6 +215,45 @@ class ApiController extends Controller
             'X-DNZB-Name' => $spot->title,
             'Cache-Control' => 'public, max-age=86400',
         ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function imdbIdentifierTerms(string $identifier): array
+    {
+        $identifier = strtolower(trim($identifier));
+        $digits = preg_replace('/^tt/', '', $identifier);
+
+        if (! is_string($digits) || preg_match('/^\d+$/', $digits) !== 1) {
+            return ['__invalid_imdb_identifier__'];
+        }
+
+        return ["tt{$digits}", "imdb:{$digits}", "imdb/{$digits}"];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function tvIdentifierTerms(string $provider, string $identifier): array
+    {
+        $identifier = trim($identifier);
+
+        if (preg_match('/^\d+$/', $identifier) !== 1) {
+            return ['__invalid_tv_identifier__'];
+        }
+
+        return match ($provider) {
+            'tvmaze' => ["tvmaze.com/shows/{$identifier}", "tvmaze:{$identifier}", "tvmazeid:{$identifier}"],
+            'tvrage' => [
+                "tvrage.com/{$identifier}",
+                "tvrage.com/shows/{$identifier}",
+                "tvrage.com/shows/id-{$identifier}",
+                "tvrage:{$identifier}",
+                "rid:{$identifier}",
+            ],
+            default => ['__invalid_tv_provider__'],
+        };
     }
 
     /**
@@ -238,7 +300,7 @@ class ApiController extends Controller
     private function rssResponse(array $spots, ?User $user, ?int $total = null, ?int $offset = null): Response
     {
         $baseUrl = rtrim((string) config('app.url'), '/');
-        $apiKey = $user !== null ? ($user->api_token ?? '') : '';
+        $apiKey = $user instanceof User ? ($user->api_token ?? '') : '';
 
         $items = '';
         foreach ($spots as $spot) {
