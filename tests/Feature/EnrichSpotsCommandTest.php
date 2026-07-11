@@ -70,6 +70,30 @@ test('enrich reports all spots enriched when none are unenriched', function () {
         ->expectsOutputToContain('All spots are already enriched');
 });
 
+test('enrich can process spots in descending posted date order', function () {
+    $olderSpot = Spot::factory()->create([
+        'xml_signature' => null,
+        'spot_posted_at' => now()->subDay(),
+    ]);
+    $newerSpot = Spot::factory()->create([
+        'xml_signature' => null,
+        'spot_posted_at' => now(),
+    ]);
+
+    $this->mockDriver->shouldReceive('headBatch')
+        ->once()
+        ->with([$newerSpot->message_id], false)
+        ->andReturn([
+            $newerSpot->message_id => null,
+        ]);
+
+    $this->artisan('spot:enrich --desc --limit=1')
+        ->assertSuccessful();
+
+    expect($newerSpot->fresh()->xml_signature)->toBe('')
+        ->and($olderSpot->fresh()->xml_signature)->toBeNull();
+});
+
 test('enrich marks failed HEAD with empty xml_signature and preserves title', function () {
     $spot = Spot::factory()->create([
         'title' => 'Keep This Title',
