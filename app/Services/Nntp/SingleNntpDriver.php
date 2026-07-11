@@ -10,7 +10,7 @@ use App\Services\Nntp\Contracts\NntpDriverInterface;
  * Single-connection NNTP driver for serial operations (NZB body and article retrieval).
  *
  * Implements NntpDriverInterface for use as a drop-in driver with one connection.
- * headParallel() runs serially (one HEAD at a time). For high-throughput parallel
+ * headBatch() runs serially (one HEAD at a time). For high-throughput parallel
  * HEAD fetches across many connections, see ParallelNntpDriver.
  */
 class SingleNntpDriver implements NntpDriverInterface
@@ -268,12 +268,9 @@ class SingleNntpDriver implements NntpDriverInterface
     /**
      * Fetch HEAD for many articles on this single connection.
      *
-     * The method name comes from {@see NntpDriverInterface}: callers use the same
-     * API whether they have one connection ({@see self}) or a connection pool
-     * ({@see ParallelNntpDriver}). It does not mean this driver runs requests in
-     * parallel — here each article is fetched serially via {@see head()}, one
-     * command at a time. For true parallel HEAD throughput, use
-     * {@see ParallelNntpDriver::headParallel()}.
+     * Each article is fetched serially via {@see head()}, one command at a time.
+     * For parallel HEAD throughput across multiple connections, use
+     * {@see ParallelNntpDriver::headBatch()}.
      *
      * Articles that return 430 (No Such Article) are passed as null to $onArticle
      * or stored as null in the returned array.
@@ -282,7 +279,7 @@ class SingleNntpDriver implements NntpDriverInterface
      * @param  callable(?array<string,string>): void|null  $onArticle
      * @return array<int|string, array<string, string>|null>
      */
-    public function headParallel(array $articles, bool $showProgress = true, ?callable $onArticle = null): array
+    public function headBatch(array $articles, bool $showProgress = true, ?callable $onArticle = null): array
     {
         $results = [];
 

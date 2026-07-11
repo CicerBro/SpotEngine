@@ -19,7 +19,7 @@ interface NntpDriverInterface
      * @param  callable(?array<string,string>): void|null  $onArticle
      * @return array<int|string, array<string, string>|null>
      */
-    public function headParallel(array $articles, bool $showProgress = true, ?callable $onArticle = null): array;
+    public function headBatch(array $articles, bool $showProgress = true, ?callable $onArticle = null): array;
 
     public function quit(): void;
 

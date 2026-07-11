@@ -271,7 +271,7 @@ class SpotRetrieverService
      */
     protected function enrichWithHead(array $spots, array $articleNumberToSpotIdx): array
     {
-        $headResults = $this->nntp->headParallel(array_keys($articleNumberToSpotIdx), showProgress: false);
+        $headResults = $this->nntp->headBatch(array_keys($articleNumberToSpotIdx), showProgress: false);
 
         foreach ($headResults as $articleNum => $headers) {
             if ($headers === null || ! isset($articleNumberToSpotIdx[$articleNum])) {

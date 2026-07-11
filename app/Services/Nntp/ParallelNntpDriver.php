@@ -636,7 +636,7 @@ class ParallelNntpDriver implements NntpDriverInterface
      *                                                                 count rather than batch size.
      * @return array<int|string, array<string, string>|null> Article number/message-ID => headers (empty when $onArticle provided)
      */
-    public function headParallel(array $articles, bool $showProgress = true, ?callable $onArticle = null): array
+    public function headBatch(array $articles, bool $showProgress = true, ?callable $onArticle = null): array
     {
         if ($articles === []) {
             return [];
@@ -876,7 +876,7 @@ class ParallelNntpDriver implements NntpDriverInterface
     /**
      * Open a single replacement connection: TCP connect → authenticate → GROUP.
      *
-     * Called synchronously when headParallel detects a dead socket. Takes ~100–300 ms,
+     * Called synchronously when headBatch detects a dead socket. Takes ~100–300 ms,
      * during which OS buffers absorb data from the remaining active sockets — well
      * within typical buffer limits. Returns the ready socket resource, or null if the
      * reconnect fails (caller will simply shrink the pool by one slot).

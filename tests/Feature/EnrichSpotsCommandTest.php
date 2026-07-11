@@ -41,7 +41,7 @@ test('enrich preserves title when upserting spot data', function () {
     </Posting></Spotnet>
     XML;
 
-    $this->mockDriver->shouldReceive('headParallel')
+    $this->mockDriver->shouldReceive('headBatch')
         ->once()
         ->andReturn([
             $spot->message_id => [
@@ -76,7 +76,7 @@ test('enrich marks failed HEAD with empty xml_signature and preserves title', fu
         'xml_signature' => null,
     ]);
 
-    $this->mockDriver->shouldReceive('headParallel')
+    $this->mockDriver->shouldReceive('headBatch')
         ->once()
         ->andReturn([
             $spot->message_id => null,
@@ -115,7 +115,7 @@ test('enrich handles mixed failed and successful HEAD results in same batch', fu
     </Posting></Spotnet>
     XML;
 
-    $this->mockDriver->shouldReceive('headParallel')
+    $this->mockDriver->shouldReceive('headBatch')
         ->once()
         ->andReturn([
             $failedSpot->message_id => null,
@@ -152,7 +152,7 @@ test('enrich deletes spots with no NZB segments', function () {
     </Posting></Spotnet>
     XML;
 
-    $this->mockDriver->shouldReceive('headParallel')
+    $this->mockDriver->shouldReceive('headBatch')
         ->once()
         ->andReturn([
             $spot->message_id => [

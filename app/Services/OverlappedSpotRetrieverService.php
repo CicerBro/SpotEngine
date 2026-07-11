@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\DB;
  * Spot retriever that overlaps DB upserts with NNTP fetching.
  *
  * After fetchBatch() returns, a child process is forked to handle the DB upsert
- * while the parent immediately starts XOVER + headParallel for the next batch.
+ * while the parent immediately starts XOVER + headBatch for the next batch.
  * The child pipes back the inserted count so progress reporting stays accurate.
  *
  * The batch summary line for batch N is printed after batch N+1 is fetched
@@ -78,7 +78,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
             $parsed = \count($spots);
 
             // SIGINT may have fired during fetchBatch (async signals). If shutdown was
-            // triggered while headParallel was running, $this->nntp is now null.
+            // triggered while headBatch was running, $this->nntp is now null.
             // Do not fork a new child in that case — just drain the previous one.
             // @phpstan-ignore if.alwaysFalse
             if ($this->shuttingDown) {
