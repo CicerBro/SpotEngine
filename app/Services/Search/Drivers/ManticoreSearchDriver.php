@@ -247,7 +247,7 @@ class ManticoreSearchDriver implements SearchDriver
         );
         $total = $response[0]['data'][0]['document_count'] ?? null;
 
-        if (! \is_int($total) && ! (\is_string($total) && ctype_digit($total))) {
+        if (! \is_int($total) && (!\is_string($total) || !ctype_digit($total))) {
             throw new ManticoreSearchException('Manticore returned an invalid document count.');
         }
 
@@ -445,7 +445,7 @@ class ManticoreSearchDriver implements SearchDriver
         foreach ($hits as $hit) {
             $id = \is_array($hit) ? ($hit['_id'] ?? null) : null;
 
-            if (! \is_int($id) && ! (\is_string($id) && ctype_digit($id))) {
+            if (! \is_int($id) && (!\is_string($id) || !ctype_digit($id))) {
                 throw new ManticoreSearchException('Manticore returned a hit with an invalid document ID.');
             }
 
@@ -468,10 +468,7 @@ class ManticoreSearchDriver implements SearchDriver
                 ->timeout($this->timeout)
                 ->post($path, $payload);
         } catch (ConnectionException $exception) {
-            throw new ManticoreSearchException(
-                "Manticore is unavailable at {$this->baseUrl()}. Check MANTICORE_HOST and MANTICORE_PORT.",
-                previous: $exception,
-            );
+            throw new ManticoreSearchException("Manticore is unavailable at {$this->baseUrl()}. Check MANTICORE_HOST and MANTICORE_PORT.", $exception->getCode(), previous: $exception);
         }
 
         if (! $response->successful()) {
@@ -487,7 +484,7 @@ class ManticoreSearchDriver implements SearchDriver
         }
 
         if (isset($decoded['error'])) {
-            throw new ManticoreSearchException('Manticore query failed: ' . (string) $decoded['error']);
+            throw new ManticoreSearchException('Manticore query failed: ' . $decoded['error']);
         }
 
         return $decoded;
@@ -511,10 +508,7 @@ class ManticoreSearchDriver implements SearchDriver
                 ->withBody($sql, 'text/plain')
                 ->post('/sql?mode=raw');
         } catch (ConnectionException $exception) {
-            throw new ManticoreSearchException(
-                "Manticore is unavailable at {$this->baseUrl()}. Check MANTICORE_HOST and MANTICORE_PORT.",
-                previous: $exception,
-            );
+            throw new ManticoreSearchException("Manticore is unavailable at {$this->baseUrl()}. Check MANTICORE_HOST and MANTICORE_PORT.", $exception->getCode(), previous: $exception);
         }
 
         if (! $response->successful() || $this->responseHasError($response->body())) {
@@ -549,10 +543,7 @@ class ManticoreSearchDriver implements SearchDriver
                 ->withBody(implode("\n", $lines) . "\n", 'application/x-ndjson')
                 ->post('/bulk');
         } catch (ConnectionException $exception) {
-            throw new ManticoreSearchException(
-                "Manticore is unavailable at {$this->baseUrl()}; pending synchronization was preserved.",
-                previous: $exception,
-            );
+            throw new ManticoreSearchException("Manticore is unavailable at {$this->baseUrl()}; pending synchronization was preserved.", $exception->getCode(), previous: $exception);
         }
 
         if (! $response->successful() || $this->responseHasError($response->body())) {
@@ -576,7 +567,7 @@ class ManticoreSearchDriver implements SearchDriver
             throw new ManticoreSearchException('MANTICORE_PORT must be between 1 and 65535.');
         }
 
-        if (preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $this->index) !== 1) {
+        if (preg_match('/^[A-Za-z_]\w*$/', $this->index) !== 1) {
             throw new ManticoreSearchException('MANTICORE_INDEX must be a valid unqualified table name.');
         }
 

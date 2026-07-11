@@ -365,7 +365,7 @@ class ApiController extends Controller
     {
         $gzip = AcceptHeader::fromString($request->headers->get('Accept-Encoding'))->get('gzip');
 
-        return $gzip !== null && $gzip->getQuality() > 0.0;
+        return $gzip instanceof \Symfony\Component\HttpFoundation\AcceptHeaderItem && $gzip->getQuality() > 0.0;
     }
 
     private function requireUser(): User
