@@ -6,4 +6,7 @@ parameters:
     paths:
         - app
 
+    configDirectories:
+        - config
+
     level: 5

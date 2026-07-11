@@ -176,11 +176,7 @@ class Category extends Model
      */
     public function displayLabel(): string
     {
-        if (isset(self::SLUG_LABELS[$this->slug])) {
-            return self::SLUG_LABELS[$this->slug];
-        }
-
-        return self::NAME_LABELS[$this->name] ?? $this->name ?? $this->slug ?? '?';
+        return self::SLUG_LABELS[$this->slug] ?? self::NAME_LABELS[$this->name] ?? $this->name ?? $this->slug ?? '?';
     }
 
     #[\Override]
