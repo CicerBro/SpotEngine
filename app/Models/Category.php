@@ -180,11 +180,7 @@ class Category extends Model
             return self::SLUG_LABELS[$this->slug];
         }
 
-        if (isset(self::NAME_LABELS[$this->name])) {
-            return self::NAME_LABELS[$this->name];
-        }
-
-        return $this->name ?? $this->slug ?? '?';
+        return self::NAME_LABELS[$this->name] ?? $this->name ?? $this->slug ?? '?';
     }
 
     #[\Override]
