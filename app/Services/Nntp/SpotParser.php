@@ -13,6 +13,8 @@ use Illuminate\Support\Facades\Log;
  */
 class SpotParser
 {
+    public function __construct(private readonly SigningService $signer = new SigningService) {}
+
     /**
      * Parse a spot from XOVER overview data — the Spotweb-style approach.
      *
@@ -28,9 +30,9 @@ class SpotParser
      *   [Nickname] <[pubkey.usersig]@[CAT][KEYID][SUBCATS].[SIZE].[RAND].[DATE].[...][SIG]>
      *
      * @param  array{subject: string, from: string, date: string, message_id: string}  $overview
-     * @return array{_moderation: true, command: string, target_message_id: string, poster: string, stamp: int}
-     *                                                                                                          | array<string, mixed>
-     *                                                                                                          | null
+     * @return array{_moderation: true, command: string, target_message_id: string, poster: string, stamp: int, is_global_moderator: bool, moderator_key_id: string|null}
+     *                                                                                                                                                                    | array<string, mixed>
+     *                                                                                                                                                                    | null
      */
     public function parseFromOverview(array $overview): ?array
     {
@@ -56,6 +58,7 @@ class SpotParser
 
         // Domain is the last @-part (nickname might itself contain @).
         $domain = array_last($atParts);
+        $localPart = implode('@', \array_slice($atParts, 0, -1));
         $fields = explode('.', $domain);
 
         // Spotnet requires at least 6 dot-delimited fields in the domain.
@@ -94,38 +97,25 @@ class SpotParser
         // Old Spotnet headers are raw ISO-8859-1, so ensure UTF-8 after decoding.
         $decodedSubject = $this->toUtf8($this->decodeMimeHeader($subject));
 
-        // Keyid 2 articles are Spotnet moderation commands: the poster holds a
-        // trusted key and the Subject encodes a command + target message-id.
-        // These must be detected before the DISPOSE continuation filter below,
-        // because "dispose" is also a valid moderation command.
+        // Keyid 2 articles may be Spotnet moderation commands. The key-id is
+        // only a selector; the header signature must authenticate the command.
         if ($keyId === 2) {
-            $parts = explode(' ', trim($decodedSubject), 2);
-            $command = strtolower($parts[0]);
+            $moderation = $this->parseModerationCommand(
+                $decodedSubject,
+                $subject,
+                $from,
+                $ltPos,
+                $messageId,
+                $domain,
+                $fields,
+                $localPart,
+                $fileSize,
+                $date,
+            );
 
-            if (\in_array($command, ['delete', 'dispose', 'remove'], true)) {
-                $targetMessageId = trim($parts[1] ?? '', '<> ');
-
-                if ($targetMessageId !== '') {
-                    $timestamp = strtotime($date);
-                    $now = time();
-
-                    if ($timestamp === false || $timestamp > $now + 86400) {
-                        $timestamp = $now;
-                    }
-
-                    $poster = mb_substr($this->toUtf8(trim(substr($from, 0, $ltPos))), 0, 255);
-
-                    return [
-                        '_moderation' => true,
-                        'command' => $command,
-                        'target_message_id' => $targetMessageId,
-                        'poster' => $poster,
-                        'stamp' => $timestamp,
-                    ];
-                }
+            if ($moderation !== null) {
+                return $moderation;
             }
-
-            // Not a valid moderation command — treat as a regular spot below.
         }
 
         // Skip Spotnet continuation articles — multi-part XML headers that were
@@ -172,6 +162,7 @@ class SpotParser
             'description' => null,
             'nzb_segments' => [],
             'image_segment' => null,
+            'image_segments' => [],
             'website' => null,
             'xml_signature' => null,
             'poster_key_id' => null,
@@ -301,7 +292,7 @@ class SpotParser
         // Navigate to Posting element
         $posting = $doc->Posting ?? $doc;
 
-        if (!property_exists($posting, 'Title') || $posting->Title === null) {
+        if (! property_exists($posting, 'Title') || $posting->Title === null) {
             return null;
         }
 
@@ -311,11 +302,7 @@ class SpotParser
         // Parse NZB segments
         $nzbSegments = $this->parseNzbSegments($posting);
 
-        // Parse image segment
-        $imageSegment = null;
-        if (property_exists($posting->Image, 'Segment') && $posting->Image->Segment !== null) {
-            $imageSegment = (string) $posting->Image->Segment;
-        }
+        $imageSegments = $this->parseImageSegments($posting);
 
         // Build the spot array
         $spot = [
@@ -324,11 +311,14 @@ class SpotParser
             'title' => (string) $posting->Title,
             'description' => property_exists($posting, 'Description') && $posting->Description !== null ? (string) $posting->Description : null,
             'tag' => property_exists($posting, 'Tag') && $posting->Tag !== null ? (string) $posting->Tag : null,
-            'website' => property_exists($posting, 'Website') && $posting->Website !== null ? (string) $posting->Website : null,
+            'website' => property_exists($posting, 'Website') && $posting->Website !== null
+                ? $this->sanitizeWebsite((string) $posting->Website)
+                : null,
             'category_code' => $category['main'],
             'subcategories' => $category['subs'],
             'file_size' => property_exists($posting, 'Size') && $posting->Size !== null ? (int) (string) $posting->Size : 0,
-            'image_segment' => $imageSegment,
+            'image_segment' => $imageSegments[0] ?? null,
+            'image_segments' => $imageSegments,
             'nzb_segments' => $nzbSegments,
             'spot_posted_at' => property_exists($posting, 'Created') && $posting->Created !== null
                 ? date('Y-m-d H:i:s', (int) (string) $posting->Created)
@@ -338,7 +328,7 @@ class SpotParser
         ];
 
         // Try to parse date from header if not in XML
-        if ((!property_exists($posting, 'Created') || $posting->Created === null) && isset($headers['date'])) {
+        if ((! property_exists($posting, 'Created') || $posting->Created === null) && isset($headers['date'])) {
             $timestamp = strtotime($headers['date']);
             if ($timestamp !== false) {
                 $spot['spot_posted_at'] = date('Y-m-d H:i:s', $timestamp);
@@ -403,6 +393,28 @@ class SpotParser
     }
 
     /**
+     * @return list<string>
+     */
+    private function parseImageSegments(\SimpleXMLElement $posting): array
+    {
+        if (! property_exists($posting, 'Image') || $posting->Image === null) {
+            return [];
+        }
+
+        $segments = [];
+
+        foreach ($posting->Image->Segment ?? [] as $segment) {
+            $segmentId = trim((string) $segment, '<> ');
+
+            if ($segmentId !== '' && $segmentId !== '0' && ! strpbrk($segmentId, "\r\n")) {
+                $segments[] = $segmentId;
+            }
+        }
+
+        return $segments;
+    }
+
+    /**
      * Extract key ID from X-User-Key header
      */
     private function extractKeyId(?string $userKey): ?string
@@ -411,12 +423,124 @@ class SpotParser
             return null;
         }
 
-        // Try to extract modulus from RSA key XML and hash it
+        // Spotter IDs are the base64-encoded little-endian CRC32 of the public modulus.
         if (preg_match('/<Modulus>([^<]+)<\/Modulus>/', $userKey, $matches)) {
-            return substr(md5($matches[1]), 0, 16);
+            return $this->calculateSpotterId($matches[1]);
         }
 
         return null;
+    }
+
+    /**
+     * @param  list<string>  $fields
+     * @return array{_moderation: true, command: string, target_message_id: string, poster: string, stamp: int, is_global_moderator: bool, moderator_key_id: string|null}|null
+     */
+    private function parseModerationCommand(
+        string $decodedSubject,
+        string $rawSubject,
+        string $from,
+        int $ltPos,
+        string $messageId,
+        string $domain,
+        array $fields,
+        string $localPart,
+        int $fileSize,
+        string $date,
+    ): ?array {
+        $parts = explode(' ', trim($decodedSubject), 2);
+        $command = strtolower($parts[0]);
+        $targetMessageId = trim($parts[1] ?? '', '<> ');
+
+        if (! \in_array($command, ['delete', 'dispose', 'remove'], true) || $targetMessageId === '') {
+            return null;
+        }
+
+        $lastSeparator = strrpos($domain, '.');
+        $headerSignature = array_last($fields);
+
+        if ($lastSeparator === false || $headerSignature === '') {
+            return null;
+        }
+
+        $poster = trim(substr($from, 0, $ltPos));
+        $signedPayload = trim($rawSubject).substr($domain, 0, $lastSeparator).$poster;
+        $trustedKey = config('spotengine.moderation.public_keys.2');
+        $isGlobalModerator = \is_array($trustedKey)
+            && isset($trustedKey['modulus'], $trustedKey['exponent'])
+            && $this->signer->verify(
+                $signedPayload,
+                $headerSignature,
+                $this->publicKeyXml((string) $trustedKey['modulus'], (string) $trustedKey['exponent']),
+            );
+
+        $moderatorKeyId = null;
+
+        if (! $isGlobalModerator) {
+            [$selfSignedModulus] = array_pad(explode('.', $localPart, 2), 2, '');
+
+            $isPersonalDispose = $fileSize === 999
+                && \strlen($selfSignedModulus) > 50
+                && str_starts_with(sha1("<{$messageId}>"), '0000')
+                && $this->signer->verify(
+                    $signedPayload,
+                    $headerSignature,
+                    $this->publicKeyXml($selfSignedModulus, 'AQAB'),
+                );
+
+            if (! $isPersonalDispose) {
+                return null;
+            }
+
+            $moderatorKeyId = $this->calculateSpotterId($selfSignedModulus);
+        }
+
+        $timestamp = strtotime($date);
+        $now = time();
+
+        if ($timestamp === false || $timestamp > $now + 86400) {
+            $timestamp = $now;
+        }
+
+        return [
+            '_moderation' => true,
+            'command' => $command,
+            'target_message_id' => $targetMessageId,
+            'poster' => mb_substr($this->toUtf8($poster), 0, 255),
+            'stamp' => $timestamp,
+            'is_global_moderator' => $isGlobalModerator,
+            'moderator_key_id' => $moderatorKeyId,
+        ];
+    }
+
+    private function publicKeyXml(string $modulus, string $exponent): string
+    {
+        return "<RSAKeyValue><Modulus>{$modulus}</Modulus><Exponent>{$exponent}</Exponent></RSAKeyValue>";
+    }
+
+    private function calculateSpotterId(string $preparedModulus): string
+    {
+        $modulus = base64_decode(str_replace(['-p', '-s', '-e'], ['+', '/', '='], $preparedModulus), true);
+
+        if ($modulus === false) {
+            return '';
+        }
+
+        $checksum = crc32($modulus);
+        $littleEndian = pack('V', $checksum);
+
+        return str_replace(['/', '+', '='], '', base64_encode($littleEndian));
+    }
+
+    private function sanitizeWebsite(string $website): ?string
+    {
+        $website = trim($website);
+        $scheme = parse_url($website, PHP_URL_SCHEME);
+
+        if (! \is_string($scheme) || ! \in_array(strtolower($scheme), ['http', 'https'], true)) {
+            return null;
+        }
+
+        return filter_var($website, FILTER_VALIDATE_URL) !== false ? $website : null;
     }
 
     private function normalizeSubcategoryCode(string $subcategoryCode, string $mainCategoryCode): ?string

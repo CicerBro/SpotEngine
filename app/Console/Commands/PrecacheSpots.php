@@ -8,7 +8,9 @@ use App\Models\Spot;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SingleNntpDriver;
 use App\Services\NzbDownloadService;
+use App\Services\SpotImageService;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
 
 class PrecacheSpots extends Command
@@ -22,8 +24,11 @@ class PrecacheSpots extends Command
 
     private bool $shouldStop = false;
 
-    public function handle(NntpService $nntpService, NzbDownloadService $nzbService): int
-    {
+    public function handle(
+        NntpService $nntpService,
+        NzbDownloadService $nzbService,
+        SpotImageService $imageService,
+    ): int {
         $type = (string) $this->option('type');
         $batchSize = (int) $this->option('batch');
         $limit = $this->option('limit') !== null ? (int) $this->option('limit') : null;
@@ -47,7 +52,7 @@ class PrecacheSpots extends Command
         }
 
         if ($type === 'images' || $type === 'both') {
-            $results['Images'] = $this->precacheImages($nntpService, $batchSize, $limit);
+            $results['Images'] = $this->precacheImages($nntpService, $imageService, $batchSize, $limit);
         }
 
         $this->newLine();
@@ -75,6 +80,7 @@ class PrecacheSpots extends Command
         $skipped = 0;
         $failed = 0;
         $processed = 0;
+        $lastId = PHP_INT_MAX;
 
         try {
             while (! $this->shouldStop) {
@@ -84,18 +90,20 @@ class PrecacheSpots extends Command
                     break;
                 }
 
-                /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $batch */
+                /** @var Collection<int, Spot> $batch */
                 $batch = Spot::query()
                     ->whereRaw("nzb_segments != '[]'::jsonb")
+                    ->where('id', '<', $lastId)
                     ->select(['id', 'message_id', 'nzb_segments'])
                     ->orderBy('id', 'desc')
-                    ->offset($processed)
                     ->limit($queryLimit)
                     ->get();
 
                 if ($batch->isEmpty()) {
                     break;
                 }
+
+                $lastId = (int) $batch->last()->id;
 
                 foreach ($batch as $spot) {
                     if ($this->shouldStop) {
@@ -142,11 +150,13 @@ class PrecacheSpots extends Command
     /**
      * @return array{cached: int, skipped: int, failed: int}
      */
-    private function precacheImages(NntpService $nntpService, int $batchSize, ?int $limit): array
-    {
+    private function precacheImages(
+        NntpService $nntpService,
+        SpotImageService $imageService,
+        int $batchSize,
+        ?int $limit,
+    ): array {
         $this->info('Pre-caching images…');
-
-        $config = $nntpService->getConfig();
 
         /** @var SingleNntpDriver $nntp */
         $nntp = $nntpService->makeDriver(driver: 'single');
@@ -157,6 +167,7 @@ class PrecacheSpots extends Command
         $failed = 0;
         $processed = 0;
         $groupSelected = false;
+        $lastId = PHP_INT_MAX;
 
         try {
             while (! $this->shouldStop) {
@@ -166,18 +177,23 @@ class PrecacheSpots extends Command
                     break;
                 }
 
-                /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $batch */
+                /** @var Collection<int, Spot> $batch */
                 $batch = Spot::query()
-                    ->whereNotNull('image_segment')
-                    ->select(['id', 'image_segment'])
+                    ->where(function ($query): void {
+                        $query->whereRaw("image_segments != '[]'::jsonb")
+                            ->orWhereNotNull('image_segment');
+                    })
+                    ->where('id', '<', $lastId)
+                    ->select(['id', 'image_segment', 'image_segments'])
                     ->orderBy('id', 'desc')
-                    ->offset($processed)
                     ->limit($queryLimit)
                     ->get();
 
                 if ($batch->isEmpty()) {
                     break;
                 }
+
+                $lastId = (int) $batch->last()->id;
 
                 foreach ($batch as $spot) {
                     if ($this->shouldStop) {
@@ -186,48 +202,25 @@ class PrecacheSpots extends Command
 
                     $processed++;
 
-                    $cachePath = nestedCachePath(
-                        (string) config('spotengine.cache.image_path'),
-                        md5((string) $spot->image_segment),
-                        'img',
-                    );
-
-                    if (file_exists($cachePath)) {
-                        $skipped++;
-
-                        continue;
-                    }
-
                     try {
-                        if (! $groupSelected) {
-                            $nntp->group($config['groups']['spots']);
+                        $image = $imageService->fetchWithDriver(
+                            $spot,
+                            $nntp,
+                            selectGroup: ! $groupSelected,
+                        );
+
+                        if ($image === null) {
+                            $failed++;
+
+                            continue;
+                        }
+
+                        if ($image['from_cache']) {
+                            $skipped++;
+                        } else {
                             $groupSelected = true;
+                            $cached++;
                         }
-
-                        $body = $nntp->body($spot->image_segment);
-
-                        if ($body === '' || $body === '0') {
-                            $failed++;
-
-                            continue;
-                        }
-
-                        $imageData = $this->decodeSpotImage($body);
-
-                        if ($imageData === '' || $imageData === '0') {
-                            $failed++;
-
-                            continue;
-                        }
-
-                        $dir = dirname($cachePath);
-
-                        if (! is_dir($dir)) {
-                            mkdir($dir, 0755, true);
-                        }
-
-                        file_put_contents($cachePath, $imageData, LOCK_EX);
-                        $cached++;
                     } catch (\Throwable $e) {
                         $failed++;
                         Log::debug('spot:precache image failed', [
@@ -252,19 +245,6 @@ class PrecacheSpots extends Command
         }
 
         return ['cached' => $cached, 'skipped' => $skipped, 'failed' => $failed];
-    }
-
-    private function decodeSpotImage(string $data): string
-    {
-        $data = str_replace(['=C', '=B', '=A', '=D'], ["\n", "\r", "\0", '='], $data);
-        $data = rtrim($data, "\r\n");
-
-        $decompressed = @gzinflate($data);
-        if ($decompressed !== false && $decompressed !== '') {
-            return $decompressed;
-        }
-
-        return $data;
     }
 
     private function outputProgress(string $type, int $cached, int $skipped, int $failed): void
