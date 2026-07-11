@@ -5,7 +5,7 @@ SpotEngine ships with a Docker Compose setup based on FrankenPHP.
 ## Services
 
 - `app`: FrankenPHP + Caddy (classic mode by default, PHP 8.5 image)
-- `db`: PostgreSQL 18
+- `pgsql`: PostgreSQL 18
 - `valkey`: Valkey/Redis-compatible service (default cache, sessions, and locks)
 - `vite`: optional Bun/Vite dev server (HMR)
 
@@ -46,7 +46,7 @@ Database credentials are reused for PostgreSQL container initialization:
 
 For container networking, Compose overrides:
 
-- `DB_HOST=db`
+- `DB_HOST=pgsql`
 - `REDIS_HOST=valkey`
 
 So your local `.env` can still use `127.0.0.1` outside Docker.
@@ -205,13 +205,13 @@ SESSION_DRIVER=database
 With those overrides, you may start only the app and database services:
 
 ```bash
-docker compose up --build -d app db
+docker compose up --build -d app pgsql
 ```
 
 Production-like equivalent:
 
 ```bash
-docker compose -f compose.yml -f compose.prod.yml up --build -d app db
+docker compose -f compose.yml -f compose.prod.yml up --build -d app pgsql
 ```
 
 ## Why Prod Uses `composer install --no-scripts`

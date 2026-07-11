@@ -95,6 +95,80 @@ That runs the same stack (queue, Pail, Vite) but serves the app via `php artisan
 - Redis remains the default cache store. Optionally set `CACHE_STORE=octane` in `.env` for in-memory cache. Octane as a cache store does not work with FrankenPHP, only Swoole or OpenSwoole. By default this project uses FrankenPHP.
 - Optional env: `OCTANE_SERVER` (default `frankenphp`), `OCTANE_HTTPS` for generated URLs.
 
+### Developing with Docker and Laravel Sail
+
+SpotEngine ships with a FrankenPHP-based Docker Compose stack (`app`, `pgsql`, `valkey`, and an optional `vite` profile). Full setup, production-like mode, and Octane overrides are documented in [DOCKER.md](DOCKER.md).
+
+[Laravel Sail](https://laravel.com/docs/sail) is included as a convenience wrapper around that stack. **Do not run `sail:install`** — it would replace the FrankenPHP setup. Sail is already wired via `.env`:
+
+```dotenv
+APP_SERVICE=app
+APP_USER=root
+```
+
+Start the stack and run Artisan from the host:
+
+```bash
+./vendor/bin/sail up -d
+./vendor/bin/sail artisan migrate --seed
+./vendor/bin/sail psql
+```
+
+Add a shell alias if you prefer: `alias sail='./vendor/bin/sail'`.
+
+#### Pick a workflow
+
+| Workflow             | Start with                          | Run PHP/Artisan on             |
+| -------------------- | ----------------------------------- | ------------------------------ |
+| **Native (default)** | `composer run dev`                  | Host                           |
+| **Infra only**       | `docker compose up -d pgsql valkey` | Host (`composer run dev`)      |
+| **Full Docker**      | `sail up -d`                        | Container (`sail artisan ...`) |
+
+The **infra-only** workflow is the least fragile hybrid: PostgreSQL and Valkey run in Docker (your DB editor connects to `127.0.0.1:5432`), while PHP, the queue worker, Pail, and Vite stay on the host via `composer run dev`.
+
+#### How hybrid networking works in development (optional)
+
+Docker service names (`pgsql`, `valkey`) only resolve **inside** the Compose network. Your host cannot look up `valkey` by DNS.
+
+For hybrid dev, keep **localhost addresses in `.env`** for anything the host runs:
+
+```dotenv
+DB_HOST=127.0.0.1
+DB_PORT=5432
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+```
+
+`compose.yml` forwards those ports to the host (`5432`, `6379`), so native PHP, your DB editor, and `redis-cli` all connect via `127.0.0.1`.
+
+When the `app` container runs, Compose **overrides** the hostnames for container networking only:
+
+```yaml
+environment:
+    DB_HOST: pgsql
+    REDIS_HOST: valkey
+```
+
+So one `.env` file works for both sides: host processes use forwarded ports on localhost; container processes use Docker DNS. Do not set `DB_HOST=pgsql` or `REDIS_HOST=valkey` in `.env` unless you run PHP exclusively inside Docker.
+
+Start infra without the web container:
+
+```bash
+docker compose up -d pgsql valkey
+composer run dev
+```
+
+#### Cached config and bind mounts
+
+In dev, the project directory is bind-mounted into the container (`.:/app`). `bootstrap/cache/` is shared between host and container. Running `php artisan config:cache` or `optimize` inside Docker bakes absolute `/app/...` paths into that cache; running Artisan on the host then breaks (and vice versa).
+
+**In local development, do not cache config.** If something looks wrong after switching between host and container, run:
+
+```bash
+php artisan optimize:clear          # on the host
+./vendor/bin/sail artisan optimize:clear   # in Docker
+```
+
 ## Configuration
 
 Copy `.env.example` to `.env` and fill in:
@@ -237,5 +311,4 @@ vendor/bin/pint
 ## TODO
 
 - [ ] Comments and reports are not handled; we currently do nothing with them
-- [ ] Add theme feature so users can write their own themes
 - [ ] Properly handle TV and movie API searches — see [TV and movie search](#tv-and-movie-search). Today `tvmazeid`, `tvdbid`, `tmdbid`, and `imdbid` only match when the ID already appears in spot metadata (`website`, `description`, or `title`). Either maintain a local show/movie reference table keyed by external IDs, or resolve titles from provider APIs at search time (Spotweb-style) and use those to search.
