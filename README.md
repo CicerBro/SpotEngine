@@ -115,7 +115,7 @@ Copy `.env.example` to `.env` and fill in:
 | **Optional (Octane)**                |                                                                                                                                          |
 | `OCTANE_SERVER`                      | Octane server: `frankenphp` (default), `roadrunner`, `swoole`                                                                            |
 | `OCTANE_HTTPS`                       | Set to `true` when serving over HTTPS so URLs use `https://`                                                                             |
-| `CACHE_STORE`                        | Set to `octane` when using Octane for in-memory cache (optional, requires Swoole)[https://laravel.com/docs/13.x/octane#the-octane-cache] |
+| `CACHE_STORE`                        | Set to `octane` when using Octane for in-memory cache [optional, requires Swoole](https://laravel.com/docs/13.x/octane#the-octane-cache) |
 
 ## Spot Retrieval
 
