@@ -21,12 +21,15 @@ use Illuminate\Support\Facades\Log;
  * Fetches the HEAD for each unenriched spot in parallel, parses the X-XML,
  * verifies the RSA signature and updates the database record. Safe to run
  * repeatedly — already-enriched spots are skipped.
+ *
+ * A lot of old spots won't have NZB data, so they'll be deleted.
  */
-#[Description('Fetch full X-XML headers for spots indexed with --initial-scan')]
+#[Description('Fetch full X-XML headers for spots indexed with --initial-scan. Oldest spots first by default, use --desc to process newest first.')]
 #[Signature('spot:enrich
                             {--connections= : Number of parallel NNTP connections (default from config)}
                             {--batch= : Articles per NNTP batch (default 500)}
-                            {--limit= : Maximum number of spots to enrich in this run}')]
+                            {--limit= : Maximum number of spots to enrich in this run}
+                            {--desc : Process spots in descending posted-date order}')]
 class EnrichSpots extends Command
 {
     public function handle(
@@ -41,6 +44,7 @@ class EnrichSpots extends Command
             : (int) $config['connections'];
         $batchSize = $this->option('batch') !== null ? (int) $this->option('batch') : 500;
         $limit = $this->option('limit') !== null ? (int) $this->option('limit') : null;
+        $orderDescending = (bool) $this->option('desc');
 
         $total = $this->countUnenriched();
 
@@ -56,18 +60,32 @@ class EnrichSpots extends Command
         $nntp = $nntpService->makeDriver($connections);
         $nntp->connect();
 
+        $attempted = 0;
         $enriched = 0;
         $failed = 0;
         $deleted = 0;
 
         while (true) {
-            $queryLimit = $limit !== null ? min($batchSize, $limit - $enriched) : $batchSize;
+            $queryLimit = $limit !== null ? min($batchSize, $limit - $attempted) : $batchSize;
+
+            if ($queryLimit <= 0) {
+                break;
+            }
+
+            $query = Spot::query()
+                ->whereNull('xml_signature')
+                ->select(['id', 'message_id', 'title', 'category_code', 'spot_posted_at']);
+
+            if ($orderDescending) {
+                $query->orderByDesc('spot_posted_at')
+                    ->orderByDesc('id');
+            } else {
+                $query->orderBy('spot_posted_at')
+                    ->orderBy('id');
+            }
 
             /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $batch */
-            $batch = Spot::query()
-                ->whereNull('xml_signature')
-                ->select(['id', 'message_id', 'title', 'category_code', 'spot_posted_at'])
-                ->orderBy('id')
+            $batch = $query
                 ->limit($queryLimit)
                 ->get();
 
@@ -92,6 +110,8 @@ class EnrichSpots extends Command
                 if ($spot === null) {
                     continue;
                 }
+
+                $attempted++;
 
                 if ($headers === null) {
                     $failed++;
@@ -125,7 +145,10 @@ class EnrichSpots extends Command
                 if ($parsed === null || ($parsed['nzb_segments'] ?? []) === []) {
                     $deleted++;
                     $deleteIds[] = $spot->id;
-                    Log::debug('spot:enrich no NZB data — deleting', ['message_id' => $messageId]);
+                    Log::debug('spot:enrich not fully indexable — deleting', [
+                        'message_id' => $messageId,
+                        'reason' => $parsed === null ? 'xml_parse_failed' : 'missing_nzb_segments',
+                    ]);
 
                     continue;
                 }
@@ -163,7 +186,7 @@ class EnrichSpots extends Command
 
             $this->line("  {$enriched} enriched, {$failed} failed, {$deleted} deleted…");
 
-            if ($limit !== null && $enriched >= $limit) {
+            if ($limit !== null && $attempted >= $limit) {
                 break;
             }
 
@@ -174,7 +197,7 @@ class EnrichSpots extends Command
 
         $nntp->quit();
 
-        $this->info("Done. Enriched: {$enriched}, failed (no HEAD): {$failed}, deleted (no NZB): {$deleted}.");
+        $this->info("Done. Enriched: {$enriched}, failed (no HEAD): {$failed}, deleted (not fully indexable): {$deleted}.");
 
         return self::SUCCESS;
     }
