@@ -219,7 +219,7 @@ test('parallel HEAD uses the shared Spotnet parser and wanted-header filter', fu
     fwrite($server, "221 1 <spot@test> headers follow\r\nSubject: ignored\r\nX-XML: <Spotnet>\r\nX-XML: <Title>Parallel</Title>\r\n </Spotnet>\r\n.\r\n");
     injectParallelSockets($driver, [$client]);
 
-    $headers = $driver->headParallel([1], showProgress: false);
+    $headers = $driver->headBatch([1], showProgress: false);
 
     expect($headers[1])->toBe([
         'x-xml' => '<Spotnet><Title>Parallel</Title></Spotnet>',

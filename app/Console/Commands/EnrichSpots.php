@@ -9,6 +9,8 @@ use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
 use App\Services\SpotMutationService;
+use Illuminate\Console\Attributes\Description;
+use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -20,8 +22,8 @@ use Illuminate\Support\Facades\Log;
  * verifies the RSA signature and updates the database record. Safe to run
  * repeatedly — already-enriched spots are skipped.
  */
-#[\Illuminate\Console\Attributes\Description('Fetch full X-XML headers for spots indexed with --initial-scan')]
-#[\Illuminate\Console\Attributes\Signature('spot:enrich
+#[Description('Fetch full X-XML headers for spots indexed with --initial-scan')]
+#[Signature('spot:enrich
                             {--connections= : Number of parallel NNTP connections (default from config)}
                             {--batch= : Articles per NNTP batch (default 500)}
                             {--limit= : Maximum number of spots to enrich in this run}')]
@@ -78,7 +80,7 @@ class EnrichSpots extends Command
             /** @var Collection<string, Spot> $spotsByMessageId */
             $spotsByMessageId = $batch->keyBy('message_id');
 
-            $headResults = $nntp->headParallel($messageIds, showProgress: false);
+            $headResults = $nntp->headBatch($messageIds, showProgress: false);
 
             $upsertRows = [];
             $deleteIds = [];
