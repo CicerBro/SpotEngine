@@ -12,7 +12,7 @@ use App\Services\Nntp\SpotParser;
 /**
  * Lazily enriches spots that were indexed via XOVER with their full X-XML data.
  *
- * XOVER-indexed spots have description=null, nzb_segments=[], image_segment=null.
+ * XOVER-indexed spots have description=null, nzb_segments=[], image_segments=[].
  * This service fetches the HEAD for the spot's message-ID and populates those
  * fields from the X-XML header, then persists the result to the database.
  */
@@ -63,9 +63,8 @@ class SpotEnricher
 
         $this->spotMutations->update($spot, [
             'description' => $parsed['description'] ?? null,
-            'nzb_segments' => $parsed['nzb_segments'] ?? [],
-            'image_segment' => $parsed['image_segment'] ?? null,
             'image_segments' => $parsed['image_segments'] ?? [],
+            'nzb_segments' => $parsed['nzb_segments'] ?? [],
             'website' => $parsed['website'] ?? null,
             'xml_signature' => $parsed['xml_signature'] ?? '',
             'poster_key_id' => $parsed['poster_key_id'] ?? null,
@@ -86,7 +85,6 @@ class SpotEnricher
         return $spot->xml_signature !== null
             || $spot->nzb_segments !== []
             || $spot->image_segments !== []
-            || $spot->image_segment !== null
             || $spot->description !== null;
     }
 

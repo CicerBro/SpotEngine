@@ -19,7 +19,6 @@ test('parseXml preserves every multipart preview image segment in posting order'
     $spot = (new SpotParser)->parseXml($xml);
 
     expect($spot)->not->toBeNull()
-        ->and($spot['image_segment'])->toBe('first-part@spot.net')
         ->and($spot['image_segments'])->toBe([
             'first-part@spot.net',
             'second-part@spot.net',

@@ -39,7 +39,7 @@ test('multipart previews are fetched, validated, and cached under a versioned ke
 
     $legacyCachePath = nestedCachePath(
         $this->imageCacheDirectory,
-        md5((string) $spot->image_segment),
+        md5($spot->image_segments[0]),
         'img',
     );
     File::ensureDirectoryExists(dirname($legacyCachePath));
@@ -98,7 +98,6 @@ test('a corrupt current-version cache entry is deleted and refetched', function 
 function previewSpot(array $segments): Spot
 {
     return new Spot([
-        'image_segment' => $segments[0] ?? null,
         'image_segments' => $segments,
         'nzb_segments' => [],
     ]);

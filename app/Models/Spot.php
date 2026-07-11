@@ -31,7 +31,6 @@ use Illuminate\Support\Collection;
  * @property string $category_code
  * @property array<int, string> $subcategories
  * @property int $file_size
- * @property string|null $image_segment
  * @property array<int, string> $image_segments
  * @property array<int, string> $nzb_segments
  * @property CarbonImmutable $spot_posted_at
@@ -59,7 +58,6 @@ use Illuminate\Support\Collection;
     'category_code',
     'subcategories',
     'file_size',
-    'image_segment',
     'image_segments',
     'nzb_segments',
     'spot_posted_at',

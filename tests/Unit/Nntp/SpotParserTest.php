@@ -40,7 +40,7 @@ test('parseFromOverview parses a valid spotnet article', function () {
     expect($spot['file_size'])->toBe(110917840);
     expect($spot['description'])->toBeNull();
     expect($spot['nzb_segments'])->toBe([]);
-    expect($spot['image_segment'])->toBeNull();
+    expect($spot['image_segments'])->toBe([]);
     expect($spot['is_verified'])->toBeFalse();
 });
 

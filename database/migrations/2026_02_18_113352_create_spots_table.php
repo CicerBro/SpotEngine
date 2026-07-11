@@ -23,7 +23,7 @@ return new class extends Migration
             $table->string('category_code', 10)->index();
             $table->jsonb('subcategories')->default('[]');
             $table->unsignedBigInteger('file_size')->default(0);
-            $table->string('image_segment', 255)->nullable();
+            $table->jsonb('image_segments')->default('[]');
             $table->jsonb('nzb_segments')->default('[]');
             $table->timestamp('spot_posted_at')->index();
             $table->string('xml_signature', 255)->nullable();
