@@ -196,7 +196,7 @@ class BbCodeParsingService
             return ['html' => $html, 'next' => $closePos + 6];
         }
 
-        if ($tagName === 'url' && ($attr === null || $attr === '')) {
+        if ($tagName === 'url') {
             $closePos = $this->findClosingTagPosition($input, '[/url]', $afterBracket);
             if ($closePos === false) {
                 return null;

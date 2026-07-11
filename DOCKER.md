@@ -6,7 +6,7 @@ SpotEngine ships with a Docker Compose setup based on FrankenPHP.
 
 - `app`: FrankenPHP + Caddy (classic mode by default, PHP 8.5 image)
 - `db`: PostgreSQL 18
-- `redis`: Redis 7 (default cache backend)
+- `valkey`: Valkey/Redis-compatible service (default cache, sessions, and locks)
 - `vite`: optional Bun/Vite dev server (HMR)
 
 The app image sets PHP `memory_limit=1G` (CLI and HTTP runtime).
@@ -47,7 +47,7 @@ Database credentials are reused for PostgreSQL container initialization:
 For container networking, Compose overrides:
 
 - `DB_HOST=db`
-- `REDIS_HOST=redis`
+- `REDIS_HOST=valkey`
 
 So your local `.env` can still use `127.0.0.1` outside Docker.
 
@@ -174,19 +174,25 @@ docker compose -f compose.yml -f compose.prod.yml -f compose.octane.yml up --bui
 
 The same applies in production-like mode: FrankenPHP serves traffic directly via built-in Caddy.
 
-## Redis (Default) and Non-Redis Setup
+## Redis/Valkey Defaults
 
-Redis is included by default because this project commonly uses Redis cache/session.
+The default `.env.example` stores cache data and sessions in the Redis-compatible Valkey service. Queues remain database-backed in PostgreSQL:
 
-If you do not use Redis, edit `.env` before starting containers:
+```dotenv
+CACHE_STORE=redis
+SESSION_DRIVER=redis
+SESSION_CONNECTION=default
+QUEUE_CONNECTION=database
+```
+
+To run cache and sessions in PostgreSQL instead, override both values in `.env`:
 
 ```dotenv
 CACHE_STORE=database
 SESSION_DRIVER=database
-QUEUE_CONNECTION=database
 ```
 
-Then start only required services:
+With those overrides, you may start only the app and database services:
 
 ```bash
 docker compose up --build -d app db
