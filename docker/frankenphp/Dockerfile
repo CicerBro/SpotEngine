@@ -12,7 +12,7 @@ RUN install-php-extensions \
     redis \
     sockets
 
-RUN apt update && apt install -y curl ca-certificates nano htop wget iputils-ping \
+RUN apt update && apt install -y curl ca-certificates procps nano htop wget iputils-ping \
     && install -d /usr/share/postgresql-common/pgdg \
     && curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc \
     && . /etc/os-release \
