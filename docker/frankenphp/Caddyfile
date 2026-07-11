@@ -1,12 +1,19 @@
 {
-    frankenphp
+	frankenphp
 }
 
 {$SERVER_NAME:localhost} {
-    root * /app/public
-    encode zstd br gzip
+	root * /app/public
+	encode zstd br gzip
 
-    php_server {
-        try_files {path} index.php
-    }
+	log {
+		output stdout
+		format console {
+			time_format "wall"
+		}
+	}
+
+	php_server {
+		try_files {path} index.php
+	}
 }

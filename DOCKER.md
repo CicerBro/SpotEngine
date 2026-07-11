@@ -126,7 +126,7 @@ docker compose -f compose.yml -f compose.octane.yml up --build -d
 This switches `app` to:
 
 ```bash
-php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=80
+php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=80 --admin-port=2019
 ```
 
 FrankenPHP includes Caddy, so no separate Nginx/Caddy container is required for this mode.
