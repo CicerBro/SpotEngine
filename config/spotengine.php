@@ -94,6 +94,17 @@ return [
         'ttl' => (int) env('LISTING_CACHE_TTL', 30), // minutes
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | User download history
+    |--------------------------------------------------------------------------
+    | Records in user_downloads older than this many days are removed by the
+    | model:prune command. Set retention to 0 to disable pruning.
+    */
+    'downloads' => [
+        'retention_days' => (int) env('DOWNLOAD_RETENTION_DAYS', 90),
+    ],
+
     'newznab' => [
         'rate_limit_per_minute' => (int) env('NEWZNAB_RATE_LIMIT_PER_MINUTE', 60),
     ],
