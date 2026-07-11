@@ -147,6 +147,7 @@ class RetrieveSpots extends Command implements Isolatable
         if ($this->option('initial-scan')) {
             $this->line('  Initial scans can take hours; let the run finish and wait for "Retrieval complete."');
         }
+        $this->line('  If unwanted, disable it in .env with RETRIEVAL_FORWARD_NEW_TO_OLD=false and run artisan config:cache again.');
         $this->newLine();
     }
 }
