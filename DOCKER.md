@@ -6,7 +6,7 @@ SpotEngine ships with a Docker Compose setup based on FrankenPHP.
 
 - `app`: FrankenPHP + Caddy (classic mode by default, PHP 8.5 image)
 - `db`: PostgreSQL 18
-- `redis`: Redis 7 (default cache backend)
+- `valkey`: Valkey/Redis-compatible service (optional shared cache, sessions, queues, and locks)
 - `vite`: optional Bun/Vite dev server (HMR)
 
 The app image sets PHP `memory_limit=1G` (CLI and HTTP runtime).
@@ -174,19 +174,19 @@ docker compose -f compose.yml -f compose.prod.yml -f compose.octane.yml up --bui
 
 The same applies in production-like mode: FrankenPHP serves traffic directly via built-in Caddy.
 
-## Redis (Default) and Non-Redis Setup
+## Optional Redis Setup
 
-Redis is included by default because this project commonly uses Redis cache/session.
+The default `.env.example` stores cache, sessions, and queues in PostgreSQL. The Redis-compatible service is included for installations that want shared, lower-latency cache, sessions, queues, and distributed locks.
 
-If you do not use Redis, edit `.env` before starting containers:
+To use it, edit `.env` before starting containers:
 
 ```dotenv
-CACHE_STORE=database
-SESSION_DRIVER=database
-QUEUE_CONNECTION=database
+CACHE_STORE=redis
+SESSION_DRIVER=redis
+QUEUE_CONNECTION=redis
 ```
 
-Then start only required services:
+If you keep the database defaults, you may start only the required services:
 
 ```bash
 docker compose up --build -d app db

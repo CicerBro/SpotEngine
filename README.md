@@ -1,6 +1,6 @@
 # SpotEngine
 
-A modern Spotnet web client built on Laravel 12 with PostgreSQL and Newznab compatible API.
+A modern Spotnet web client built on Laravel 13 with PostgreSQL and a Newznab-compatible API.
 
 ## Why SpotEngine?
 
@@ -9,19 +9,19 @@ A modern Spotnet web client built on Laravel 12 with PostgreSQL and Newznab comp
 SpotEngine aims to provide the same core experience, browsing and downloading Spotnet spots, with a clean, modern codebase that is a joy to work on:
 
 - **Modern UI**: Tailwind CSS v4, responsive layout, and a straightforward browsing experience for spots and categories.
-- **Laravel 12**: modern conventions, first-class tooling, expressive APIs. Optionally with Laravel Octane and FrankenPHP for even better performance.
+- **Laravel 13**: modern conventions, first-class tooling, expressive APIs. Optionally with Laravel Octane and FrankenPHP for even better performance.
 - **PostgreSQL**: JSONB with GIN indexes for subcategory filtering, `tsvector`/`tsquery` full-text search with a single GIN index across title and description, and a descending index on `spot_posted_at` for fast listing queries
 - **Newznab-compatible API**: Can be used with tools like Sonarr, Radarr, and similar automation software.
 - **Extensible search**: `SearchDriver` contract with a `DatabaseSearchDriver` (uses PostgreSQL FTS) and a `ManticoreSearchDriver` stub. Currently Manticore is a work in progress. For very busy applications with a lot of API traffic, Manticore is the preferred driver.
-- **Redis caching**: categories cached in Redis, NZB/image files cached to disk with a configurable pruning schedule
+- **Layered caching**: database cache by default, optional Redis for shared cache/locks, and disk-backed NZB/image caches with configurable pruning.
 - **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval. Initial full scan can be done in under 5 minutes on an Apple M1 Pro.
 - **Two-phase spot retrieval**: Initial scan uses XOVER for fast bulk indexing so the app is usable right away. Enrichment fills in the rest via HEAD requests in the background. See [Spot Retrieval](#spot-retrieval) for details.
 
 ## Requirements
 
 - PHP 8.5+
-- PostgreSQL 16+
-- Redis 7+
+- PostgreSQL 16+ (PostgreSQL 18 is used by Docker and CI and is the recommended database)
+- Redis 7+ (optional; recommended for multi-server deployments)
 - [Bun](https://bun.sh)
 
 ## Setup
@@ -46,7 +46,7 @@ Docker images in this repository are pinned to FrankenPHP PHP 8.5 variants.
 
 ### How to get started
 
-1. **Configure `.env`**: Copy `.env.example` to `.env` and fill in your database, Redis, and NNTP settings (see [Configuration](#configuration)).
+1. **Configure `.env`**: Copy `.env.example` to `.env` and fill in your database and NNTP settings; configure Redis only if you intend to use it (see [Configuration](#configuration)).
 2. **Install PHP dependencies**:
     ```bash
     composer install
@@ -99,7 +99,8 @@ Copy `.env.example` to `.env` and fill in:
 | ------------------------------------ | ---------------------------------------------------------------- |
 | `APP_KEY`                            | Required Laravel encryption key                                  |
 | `DB_*`                               | PostgreSQL connection                                            |
-| `REDIS_*`                            | Redis connection (`REDIS_CACHE_DB` defaults to `1`)              |
+| `CACHE_STORE`                        | `database` by default; use `redis` for shared cache and locks    |
+| `REDIS_*`                            | Optional Redis connection (`REDIS_CACHE_DB` defaults to `1`)     |
 | `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server                                                    |
 | `NNTP_USERNAME`, `NNTP_PASSWORD`     | Usenet credentials                                               |
 | `NNTP_CONNECTIONS`                   | Parallel connection count (default `20`)                         |

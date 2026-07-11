@@ -4,15 +4,11 @@
     "type": "project",
     "description": "SpotEngine is a modern Spotnet web client built on Laravel 13 with PostgreSQL.",
     "keywords": [
-        "laravel",
-        "framework",
+        "spotengine",
         "spotnet",
+        "spotweb",
         "usenet",
         "nntp",
-        "search",
-        "cache",
-        "retrieval",
-        "download",
         "nzb"
     ],
     "license": "MIT",
