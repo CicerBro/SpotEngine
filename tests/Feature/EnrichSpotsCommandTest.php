@@ -6,6 +6,7 @@ use App\Models\Spot;
 use App\Services\Nntp\Contracts\NntpDriverInterface;
 use App\Services\Nntp\NntpService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -92,6 +93,55 @@ test('enrich can process spots in descending posted date order', function () {
 
     expect($newerSpot->fresh()->xml_signature)->toBe('')
         ->and($olderSpot->fresh()->xml_signature)->toBeNull();
+});
+
+test('enrich advances through batches using a posted-date cursor', function () {
+    $firstSpot = Spot::factory()->create([
+        'xml_signature' => null,
+        'spot_posted_at' => now()->subMinutes(2),
+    ]);
+    $secondSpot = Spot::factory()->create([
+        'xml_signature' => null,
+        'spot_posted_at' => now()->subMinute(),
+    ]);
+    $thirdSpot = Spot::factory()->create([
+        'xml_signature' => null,
+        'spot_posted_at' => now(),
+    ]);
+
+    $this->mockDriver->shouldReceive('headBatch')
+        ->once()
+        ->with([$firstSpot->message_id, $secondSpot->message_id], false)
+        ->ordered()
+        ->andReturn([
+            $firstSpot->message_id => null,
+            $secondSpot->message_id => null,
+        ]);
+    $this->mockDriver->shouldReceive('headBatch')
+        ->once()
+        ->with([$thirdSpot->message_id], false)
+        ->ordered()
+        ->andReturn([
+            $thirdSpot->message_id => null,
+        ]);
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $this->artisan('spot:enrich --batch=2')
+        ->assertSuccessful();
+
+    $batchQueries = collect(DB::getQueryLog())
+        ->pluck('query')
+        ->filter(fn (string $query): bool => str_contains($query, 'from "spots"')
+            && str_contains($query, '"xml_signature" is null')
+            && str_contains($query, 'limit 2'))
+        ->values();
+
+    DB::disableQueryLog();
+
+    expect($batchQueries)->toHaveCount(2)
+        ->and($batchQueries->last())->toContain('"spot_posted_at" > ?');
 });
 
 test('enrich marks failed HEAD with empty xml_signature and preserves title', function () {
