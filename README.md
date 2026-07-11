@@ -12,7 +12,7 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 - **Laravel 12**: modern conventions, first-class tooling, expressive APIs. Optionally with Laravel Octane and FrankenPHP for even better performance.
 - **PostgreSQL**: JSONB with GIN indexes for subcategory filtering, `tsvector`/`tsquery` full-text search with a single GIN index across title and description, and a descending index on `spot_posted_at` for fast listing queries
 - **Newznab-compatible API**: Can be used with tools like Sonarr, Radarr, and similar automation software.
-- **Extensible search**: `SearchDriver` contract with a `DatabaseSearchDriver` (uses PostgreSQL FTS) and a `ManticoreSearchDriver` stub. Currently Manticore is a work in progress. For very busy applications with a lot of API traffic, Manticore is the preferred driver.
+- **Extensible search**: `SearchDriver` contract with PostgreSQL full-text search by default and optional Manticore for larger installations.
 - **Redis caching**: categories cached in Redis, NZB/image files cached to disk with a configurable pruning schedule
 - **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval. Initial full scan can be done in under 5 minutes on an Apple M1 Pro.
 - **Two-phase spot retrieval**: Initial scan uses XOVER for fast bulk indexing so the app is usable right away. Enrichment fills in the rest via HEAD requests in the background. See [Spot Retrieval](#spot-retrieval) for details.
@@ -103,7 +103,7 @@ Copy `.env.example` to `.env` and fill in:
 | `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server                                                    |
 | `NNTP_USERNAME`, `NNTP_PASSWORD`     | Usenet credentials                                               |
 | `NNTP_CONNECTIONS`                   | Parallel connection count (default `20`)                         |
-| `SEARCH_DRIVER`                      | `database` (default) or `manticore` (work in progress)           |
+| `SEARCH_DRIVER`                      | `database` (default) or `manticore`                              |
 | `CACHE_NZB_RETENTION_DAYS`           | Days to keep cached NZB files before pruning (default `30`)      |
 | `CACHE_IMAGE_RETENTION_DAYS`         | Days to keep cached images before pruning (default `30`)         |
 | `REGISTRATION_OPEN`                  | Allow new user registrations (`true`/`false`)                    |
