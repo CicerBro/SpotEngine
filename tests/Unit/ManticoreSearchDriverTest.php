@@ -84,6 +84,42 @@ test('manticore query engine owns text filters sorting and pagination', function
         ->and($spots->first()->getAttributes())->not->toHaveKey('nzb_segments');
 });
 
+test('manticore cursor pagination exposes next cursor from prefetched hit', function () {
+    $older = Spot::factory()->create([
+        'title' => 'Older cursor result',
+        'spot_posted_at' => now()->subMinute(),
+    ]);
+    $newer = Spot::factory()->create([
+        'title' => 'Newer cursor result',
+        'spot_posted_at' => now(),
+    ]);
+
+    Http::fake(function (Request $request) use ($older, $newer) {
+        $payload = $request->data();
+
+        expect($payload['query'])->toHaveKey('match_all')
+            ->and($payload['sort'])->toBe([
+                ['posted_at' => 'desc'],
+                ['id' => 'desc'],
+            ])->and($payload['limit'])->toBe(2);
+
+        return Http::response([
+            'hits' => [
+                'hits' => [
+                    ['_id' => $newer->id, '_source' => []],
+                    ['_id' => $older->id, '_source' => []],
+                ],
+            ],
+        ]);
+    });
+
+    $spots = manticoreDriver()->cursorPaginate(new SpotSearchCriteria(perPage: 1));
+
+    expect(array_map(static fn (Spot $spot): int => $spot->id, $spots->items()))->toBe([$newer->id])
+        ->and($spots->hasMorePages())->toBeTrue()
+        ->and($spots->nextCursor()?->parameter('id'))->toBe($newer->id);
+});
+
 test('database and manticore listing engines preserve filter and ordering parity', function () {
     Spot::factory()->create([
         'category_code' => '02',

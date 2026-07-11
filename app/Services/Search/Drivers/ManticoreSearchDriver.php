@@ -15,6 +15,7 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Pagination\Cursor;
 use Illuminate\Pagination\CursorPaginator;
 use Illuminate\Pagination\LengthAwarePaginator;
+use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
 
@@ -78,7 +79,7 @@ class ManticoreSearchDriver implements SearchDriver
             $criteria->perPage,
             intdiv($offset, $criteria->perPage) + 1,
             [
-                'path' => LengthAwarePaginator::resolveCurrentPath(),
+                'path' => Paginator::resolveCurrentPath(),
                 'pageName' => $criteria->pageName,
             ],
         );
@@ -120,19 +121,16 @@ class ManticoreSearchDriver implements SearchDriver
             );
         }
 
-        $hasMore = $spots->count() > $criteria->perPage;
-        $items = $spots->take($criteria->perPage)->values();
-
-        return (new CursorPaginator(
-            $items,
+        return new CursorPaginator(
+            $spots,
             $criteria->perPage,
             $cursor,
             [
-                'path' => CursorPaginator::resolveCurrentPath(),
+                'path' => Paginator::resolveCurrentPath(),
                 'cursorName' => 'cursor',
                 'parameters' => ['spot_posted_at', 'id'],
             ]
-        ))->hasMore($hasMore);
+        );
     }
 
     public function count(SpotSearchCriteria $criteria): int
@@ -337,7 +335,6 @@ class ManticoreSearchDriver implements SearchDriver
         $id = (int) $cursor->parameter('id');
 
         $timestamp = match (true) {
-            $postedAt instanceof \DateTimeInterface => $postedAt->getTimestamp(),
             is_numeric($postedAt) => (int) $postedAt,
             is_string($postedAt) => strtotime($postedAt) ?: 0,
             default => 0,
@@ -422,6 +419,7 @@ class ManticoreSearchDriver implements SearchDriver
             return collect();
         }
 
+        /** @var Collection<int, Spot> $spotsById */
         $spotsById = Spot::query()
             ->select(['id', 'title', 'description', 'poster', 'file_size', 'spot_posted_at', 'category_code', 'subcategories'])
             ->selectRaw("(nzb_segments <> '[]'::jsonb) AS has_nzb")
