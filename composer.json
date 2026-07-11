@@ -67,6 +67,11 @@
             "Composer\\Config::disableProcessTimeout",
             "bunx concurrently -c \"#93c5fd,#c4b5fd,#fb7185,#fdba74\" \"php artisan octane:start --watch\" \"php artisan queue:listen --tries=1 --timeout=0\" \"php artisan pail --timeout=0\" \"bun run dev\" --names=octane,queue,logs,vite --kill-others"
         ],
+        "check": [
+            "vendor/bin/pint --parallel",
+            "vendor/bin/phpstan analyse --memory-limit=1G",
+            "vendor/bin/rector --dry-run"
+        ],
         "test": [
             "@php artisan config:clear --ansi",
             "@php artisan test"
