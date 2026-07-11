@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Models\Spot;
+use App\Services\Nntp\Contracts\NntpDriverInterface;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
@@ -33,6 +34,8 @@ use Symfony\Component\Console\Helper\ProgressBar;
                             {--desc : Process spots in descending posted-date order}')]
 class EnrichSpots extends Command
 {
+    private bool $shouldStop = false;
+
     public function handle(
         NntpService $nntpService,
         SpotParser $parser,
@@ -61,6 +64,9 @@ class EnrichSpots extends Command
         $nntp = $nntpService->makeDriver($connections);
         $nntp->connect();
 
+        $this->shouldStop = false;
+        $this->registerInterruptHandler($nntp);
+
         $attempted = 0;
         $enriched = 0;
         $failed = 0;
@@ -69,141 +75,161 @@ class EnrichSpots extends Command
         $progressBar = $this->createEnrichProgressBar($cap, $enriched, $failed, $deleted);
         $progressBar->start();
 
-        while (true) {
-            $queryLimit = $limit !== null ? min($batchSize, $limit - $attempted) : $batchSize;
-
-            if ($queryLimit <= 0) {
-                break;
-            }
-
-            $query = Spot::query()
-                ->whereNull('xml_signature')
-                ->select(['id', 'message_id', 'title', 'category_code', 'spot_posted_at']);
-
-            if ($orderDescending) {
-                $query->orderByDesc('spot_posted_at')
-                    ->orderByDesc('id');
-            } else {
-                $query->orderBy('spot_posted_at')
-                    ->orderBy('id');
-            }
-
-            /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $batch */
-            $batch = $query
-                ->limit($queryLimit)
-                ->get();
-
-            if ($batch->isEmpty()) {
-                break;
-            }
-
-            $messageIds = $batch->pluck('message_id')->all();
-
-            /** @var Collection<string, Spot> $spotsByMessageId */
-            $spotsByMessageId = $batch->keyBy('message_id');
-
-            $headResults = $nntp->headBatch($messageIds, showProgress: false);
-
-            $upsertRows = [];
-            $deleteIds = [];
-
-            foreach ($headResults as $messageId => $headers) {
-                /** @var Spot|null $spot */
-                $spot = $spotsByMessageId->get((string) $messageId);
-
-                if ($spot === null) {
-                    continue;
+        try {
+            while (true) {
+                if ($this->wasInterrupted()) {
+                    break;
                 }
 
-                $attempted++;
+                $queryLimit = $limit !== null ? min($batchSize, $limit - $attempted) : $batchSize;
 
-                if ($headers === null) {
-                    $failed++;
-                    Log::debug('spot:enrich HEAD failed', ['message_id' => $messageId]);
+                if ($queryLimit <= 0) {
+                    break;
+                }
 
-                    // Mark as attempted — HEAD failure may be transient.
+                $query = Spot::query()
+                    ->whereNull('xml_signature')
+                    ->select(['id', 'message_id', 'title', 'category_code', 'spot_posted_at']);
+
+                if ($orderDescending) {
+                    $query->orderByDesc('spot_posted_at')
+                        ->orderByDesc('id');
+                } else {
+                    $query->orderBy('spot_posted_at')
+                        ->orderBy('id');
+                }
+
+                /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $batch */
+                $batch = $query
+                    ->limit($queryLimit)
+                    ->get();
+
+                if ($batch->isEmpty()) {
+                    break;
+                }
+
+                $messageIds = $batch->pluck('message_id')->all();
+
+                /** @var Collection<string, Spot> $spotsByMessageId */
+                $spotsByMessageId = $batch->keyBy('message_id');
+
+                $headResults = $nntp->headBatch($messageIds, showProgress: false);
+
+                if ($this->wasInterrupted()) {
+                    break;
+                }
+
+                $upsertRows = [];
+                $deleteIds = [];
+
+                foreach ($headResults as $messageId => $headers) {
+                    /** @var Spot|null $spot */
+                    $spot = $spotsByMessageId->get((string) $messageId);
+
+                    if ($spot === null) {
+                        continue;
+                    }
+
+                    $attempted++;
+
+                    if ($headers === null) {
+                        $failed++;
+                        Log::debug('spot:enrich HEAD failed', ['message_id' => $messageId]);
+
+                        // Mark as attempted — HEAD failure may be transient.
+                        $upsertRows[] = [
+                            'id' => $spot->id,
+                            'message_id' => $spot->message_id,
+                            'title' => $spot->title,
+                            'category_code' => $spot->category_code,
+                            'spot_posted_at' => $spot->spot_posted_at,
+                            'description' => null,
+                            'image_segments' => '[]',
+                            'nzb_segments' => '[]',
+                            'website' => null,
+                            'xml_signature' => '',
+                            'poster_key_id' => null,
+                            'is_verified' => false,
+                        ];
+
+                        continue;
+                    }
+
+                    $xmlContent = $headers['x-xml'] ?? '';
+                    $xmlSignature = $headers['x-xml-signature'] ?? '';
+                    $userKey = $headers['x-user-key'] ?? '';
+
+                    $parsed = $parser->parseFromHeaders($headers);
+
+                    if ($parsed === null || ($parsed['nzb_segments'] ?? []) === []) {
+                        $deleted++;
+                        $deleteIds[] = $spot->id;
+                        Log::debug('spot:enrich not fully indexable — deleting', [
+                            'message_id' => $messageId,
+                            'reason' => $parsed === null ? 'xml_parse_failed' : 'missing_nzb_segments',
+                        ]);
+
+                        continue;
+                    }
+
+                    $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== '' && $signer->verify($xmlContent, $xmlSignature, $userKey);
+
                     $upsertRows[] = [
                         'id' => $spot->id,
                         'message_id' => $spot->message_id,
                         'title' => $spot->title,
                         'category_code' => $spot->category_code,
                         'spot_posted_at' => $spot->spot_posted_at,
-                        'description' => null,
-                        'image_segments' => '[]',
-                        'nzb_segments' => '[]',
-                        'website' => null,
-                        'xml_signature' => '',
-                        'poster_key_id' => null,
-                        'is_verified' => false,
+                        'description' => $parsed['description'] ?? null,
+                        'image_segments' => json_encode($parsed['image_segments'] ?? []) ?: '[]',
+                        'nzb_segments' => json_encode($parsed['nzb_segments'] ?? []) ?: '[]',
+                        'website' => $parsed['website'] ?? null,
+                        'xml_signature' => $parsed['xml_signature'] ?? '',
+                        'poster_key_id' => $parsed['poster_key_id'] ?? null,
+                        'is_verified' => $isVerified,
                     ];
 
-                    continue;
+                    $enriched++;
                 }
 
-                $xmlContent = $headers['x-xml'] ?? '';
-                $xmlSignature = $headers['x-xml-signature'] ?? '';
-                $userKey = $headers['x-user-key'] ?? '';
-
-                $parsed = $parser->parseFromHeaders($headers);
-
-                if ($parsed === null || ($parsed['nzb_segments'] ?? []) === []) {
-                    $deleted++;
-                    $deleteIds[] = $spot->id;
-                    Log::debug('spot:enrich not fully indexable — deleting', [
-                        'message_id' => $messageId,
-                        'reason' => $parsed === null ? 'xml_parse_failed' : 'missing_nzb_segments',
+                if ($upsertRows !== []) {
+                    $spotMutations->upsert($upsertRows, ['id'], [
+                        'description', 'image_segments', 'nzb_segments', 'website',
+                        'xml_signature', 'poster_key_id', 'is_verified',
                     ]);
-
-                    continue;
                 }
 
-                $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== '' && $signer->verify($xmlContent, $xmlSignature, $userKey);
+                if ($deleteIds !== []) {
+                    $spotMutations->delete($deleteIds);
+                }
 
-                $upsertRows[] = [
-                    'id' => $spot->id,
-                    'message_id' => $spot->message_id,
-                    'title' => $spot->title,
-                    'category_code' => $spot->category_code,
-                    'spot_posted_at' => $spot->spot_posted_at,
-                    'description' => $parsed['description'] ?? null,
-                    'image_segments' => json_encode($parsed['image_segments'] ?? []) ?: '[]',
-                    'nzb_segments' => json_encode($parsed['nzb_segments'] ?? []) ?: '[]',
-                    'website' => $parsed['website'] ?? null,
-                    'xml_signature' => $parsed['xml_signature'] ?? '',
-                    'poster_key_id' => $parsed['poster_key_id'] ?? null,
-                    'is_verified' => $isVerified,
-                ];
+                $progressBar->setProgress($attempted);
+                $progressBar->display();
 
-                $enriched++;
+                if ($limit !== null && $attempted >= $limit) {
+                    break;
+                }
+
+                if ($batch->count() < $batchSize) {
+                    break;
+                }
+            }
+        } finally {
+            try {
+                $nntp->quit();
+            } catch (\Throwable) {
+                // Ignore quit errors during shutdown.
             }
 
-            if ($upsertRows !== []) {
-                $spotMutations->upsert($upsertRows, ['id'], [
-                    'description', 'image_segments', 'nzb_segments', 'website',
-                    'xml_signature', 'poster_key_id', 'is_verified',
-                ]);
-            }
-
-            if ($deleteIds !== []) {
-                $spotMutations->delete($deleteIds);
-            }
-
-            $progressBar->setProgress($attempted);
-            $progressBar->display();
-
-            if ($limit !== null && $attempted >= $limit) {
-                break;
-            }
-
-            if ($batch->count() < $batchSize) {
-                break;
-            }
+            $progressBar->finish();
+            $this->newLine();
         }
 
-        $nntp->quit();
+        if ($this->wasInterrupted()) {
+            $this->warn("Stopped early. Enriched: {$enriched}, failed (no HEAD): {$failed}, deleted (not fully indexable): {$deleted}.");
 
-        $progressBar->finish();
-        $this->newLine();
+            return self::SUCCESS;
+        }
 
         $this->info("Done. Enriched: {$enriched}, failed (no HEAD): {$failed}, deleted (not fully indexable): {$deleted}.");
 
@@ -241,5 +267,39 @@ class EnrichSpots extends Command
         });
 
         return $bar;
+    }
+
+    /**
+     * Signal handlers may flip this during long-running NNTP calls.
+     *
+     * @phpstan-impure
+     */
+    private function wasInterrupted(): bool
+    {
+        return $this->shouldStop;
+    }
+
+    private function registerInterruptHandler(NntpDriverInterface $nntp): void
+    {
+        if (! function_exists('pcntl_async_signals')) {
+            return;
+        }
+
+        pcntl_async_signals(true);
+
+        $handler = function () use ($nntp): void {
+            $this->shouldStop = true;
+            $this->newLine();
+            $this->warn('Interrupted — closing NNTP connections…');
+
+            try {
+                $nntp->quit();
+            } catch (\Throwable) {
+                // Ignore quit errors during shutdown.
+            }
+        };
+
+        pcntl_signal(SIGINT, $handler);
+        pcntl_signal(SIGTERM, $handler);
     }
 }
