@@ -179,12 +179,9 @@ class PrecacheSpots extends Command
 
                 /** @var Collection<int, Spot> $batch */
                 $batch = Spot::query()
-                    ->where(function ($query): void {
-                        $query->whereRaw("image_segments != '[]'::jsonb")
-                            ->orWhereNotNull('image_segment');
-                    })
+                    ->whereRaw("image_segments != '[]'::jsonb")
                     ->where('id', '<', $lastId)
-                    ->select(['id', 'image_segment', 'image_segments'])
+                    ->select(['id', 'image_segments'])
                     ->orderBy('id', 'desc')
                     ->limit($queryLimit)
                     ->get();

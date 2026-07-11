@@ -228,7 +228,7 @@ test('spot show returns 404 for non-existent spot', function () {
 
 test('spot image returns placeholder when spot has no image', function () {
     $user = User::factory()->create();
-    $spot = Spot::factory()->create(['image_segment' => null]);
+    $spot = Spot::factory()->create(['image_segments' => []]);
 
     $response = $this->actingAs($user)->get(route('spots.image', $spot));
 

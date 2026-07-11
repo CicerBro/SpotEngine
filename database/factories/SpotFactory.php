@@ -28,7 +28,6 @@ class SpotFactory extends Factory
             'category_code' => $category,
             'subcategories' => [],
             'file_size' => fake()->numberBetween(100_000_000, 50_000_000_000),
-            'image_segment' => null,
             'image_segments' => [],
             'nzb_segments' => [
                 fake()->uuid() . '@news.example.com',
@@ -50,8 +49,7 @@ class SpotFactory extends Factory
     public function withImage(): static
     {
         return $this->state(fn (array $attributes) => [
-            'image_segment' => $segment = fake()->uuid() . '@news.example.com',
-            'image_segments' => [$segment],
+            'image_segments' => [$segment = fake()->uuid() . '@news.example.com'],
         ]);
     }
 }

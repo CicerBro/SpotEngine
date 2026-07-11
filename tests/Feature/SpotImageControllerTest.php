@@ -12,7 +12,6 @@ uses(RefreshDatabase::class);
 test('spot image returns a non-cacheable placeholder when no preview exists', function () {
     $user = User::factory()->create();
     $spot = Spot::factory()->create([
-        'image_segment' => null,
         'image_segments' => [],
     ]);
 

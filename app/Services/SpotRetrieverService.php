@@ -223,7 +223,7 @@ class SpotRetrieverService
      *
      * In normal mode (not initial-scan), HEAD is fetched in parallel for every
      * article so the spot is fully populated (description, nzb_segments,
-     * image_segment, is_verified) before it reaches the database.
+     * image_segments, is_verified) before it reaches the database.
      *
      * In initial-scan mode only XOVER runs — HEAD is skipped for speed.
      *
@@ -291,9 +291,8 @@ class SpotRetrieverService
 
                 $spots[$idx] = array_merge($spots[$idx], [
                     'description' => $xmlData['description'] ?? null,
-                    'nzb_segments' => $xmlData['nzb_segments'] ?? [],
-                    'image_segment' => $xmlData['image_segment'] ?? null,
                     'image_segments' => $xmlData['image_segments'] ?? [],
+                    'nzb_segments' => $xmlData['nzb_segments'] ?? [],
                     'website' => $xmlData['website'] ?? null,
                     'xml_signature' => $xmlData['xml_signature'] ?? null,
                     'poster_key_id' => $xmlData['poster_key_id'] ?? null,
@@ -483,7 +482,7 @@ class SpotRetrieverService
         // In normal mode the full set (including X-XML) is updated on conflict.
         $updateColumns = $this->initialScan
             ? ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'updated_at']
-            : ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'description', 'nzb_segments', 'image_segment', 'image_segments', 'website', 'xml_signature', 'poster_key_id', 'is_verified', 'updated_at'];
+            : ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'description', 'image_segments', 'nzb_segments', 'website', 'xml_signature', 'poster_key_id', 'is_verified', 'updated_at'];
 
         return $this->spotMutations->upsert($rows, ['message_id'], $updateColumns);
     }

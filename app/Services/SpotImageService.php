@@ -92,18 +92,14 @@ class SpotImageService
     {
         $segments = $spot->getAttribute('image_segments');
 
-        if (\is_array($segments)) {
-            $segments = array_values(array_filter(
-                $segments,
-                static fn (mixed $segment): bool => \is_string($segment) && $segment !== '' && $segment !== '0',
-            ));
-
-            if ($segments !== []) {
-                return $segments;
-            }
+        if (! \is_array($segments)) {
+            return [];
         }
 
-        return filled($spot->image_segment) ? [(string) $spot->image_segment] : [];
+        return array_values(array_filter(
+            $segments,
+            static fn (mixed $segment): bool => \is_string($segment) && $segment !== '' && $segment !== '0',
+        ));
     }
 
     /**

@@ -105,9 +105,8 @@ class EnrichSpots extends Command
                         'category_code' => $spot->category_code,
                         'spot_posted_at' => $spot->spot_posted_at,
                         'description' => null,
-                        'nzb_segments' => '[]',
-                        'image_segment' => null,
                         'image_segments' => '[]',
+                        'nzb_segments' => '[]',
                         'website' => null,
                         'xml_signature' => '',
                         'poster_key_id' => null,
@@ -140,9 +139,8 @@ class EnrichSpots extends Command
                     'category_code' => $spot->category_code,
                     'spot_posted_at' => $spot->spot_posted_at,
                     'description' => $parsed['description'] ?? null,
-                    'nzb_segments' => json_encode($parsed['nzb_segments'] ?? []) ?: '[]',
-                    'image_segment' => $parsed['image_segment'] ?? null,
                     'image_segments' => json_encode($parsed['image_segments'] ?? []) ?: '[]',
+                    'nzb_segments' => json_encode($parsed['nzb_segments'] ?? []) ?: '[]',
                     'website' => $parsed['website'] ?? null,
                     'xml_signature' => $parsed['xml_signature'] ?? '',
                     'poster_key_id' => $parsed['poster_key_id'] ?? null,
@@ -154,7 +152,7 @@ class EnrichSpots extends Command
 
             if ($upsertRows !== []) {
                 $spotMutations->upsert($upsertRows, ['id'], [
-                    'description', 'nzb_segments', 'image_segment', 'image_segments', 'website',
+                    'description', 'image_segments', 'nzb_segments', 'website',
                     'xml_signature', 'poster_key_id', 'is_verified',
                 ]);
             }

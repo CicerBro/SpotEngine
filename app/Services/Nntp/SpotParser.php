@@ -23,7 +23,7 @@ class SpotParser
      * subcategories and filesize; Subject carries the title (and optional tag
      * separated by a pipe). Returns null for non-Spotnet articles.
      *
-     * X-XML fields (description, nzb_segments, image_segment, website) are
+     * X-XML fields (description, image_segments, nzb_segments, website) are
      * left null/empty and can be populated lazily via HEAD when needed.
      *
      * Spotnet From header format:
@@ -160,9 +160,8 @@ class SpotParser
             'spot_posted_at' => date('Y-m-d H:i:s', $timestamp),
             // X-XML fields — populated lazily via HEAD when needed:
             'description' => null,
-            'nzb_segments' => [],
-            'image_segment' => null,
             'image_segments' => [],
+            'nzb_segments' => [],
             'website' => null,
             'xml_signature' => null,
             'poster_key_id' => null,
@@ -245,7 +244,6 @@ class SpotParser
             'category_code' => $category['main'],
             'subcategories' => $category['subs'],
             'file_size' => property_exists($posting, 'Size') && $posting->Size !== null ? (int) (string) $posting->Size : 0,
-            'image_segment' => $imageSegments[0] ?? null,
             'image_segments' => $imageSegments,
             'nzb_segments' => $nzbSegments,
             'spot_posted_at' => property_exists($posting, 'Created') && $posting->Created !== null
