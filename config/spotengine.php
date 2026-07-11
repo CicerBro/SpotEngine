@@ -31,6 +31,22 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Spotnet moderation
+    |--------------------------------------------------------------------------
+    | Trusted protocol keys used to authenticate globally-authorized moderation
+    | commands. Key 2 is the published Team ONG moderator key.
+    */
+    'moderation' => [
+        'public_keys' => [
+            2 => [
+                'modulus' => 'ys8WSlqonQMWT8ubG0tAA2Q07P36E+CJmb875wSR1XH7IFhEi0CCwlUzNqBFhC+P',
+                'exponent' => 'AQAB',
+            ],
+        ],
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Cache (NZB and images)
     |--------------------------------------------------------------------------
     | Local paths and retention: files older than the retention days are
@@ -61,7 +77,7 @@ return [
     'retrieval' => [
         'batch_size' => (int) env('RETRIEVAL_BATCH_SIZE', 5000),
         'memory_limit' => env('RETRIEVAL_MEMORY_LIMIT', '1G'),
-        'forward_new_to_old' => (bool) env('RETRIEVAL_FORWARD_NEW_TO_OLD', false),
+        'forward_new_to_old' => (bool) env('RETRIEVAL_FORWARD_NEW_TO_OLD', true),
     ],
 
     /*
