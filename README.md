@@ -1,6 +1,6 @@
 # SpotEngine
 
-A modern Spotnet web client built on Laravel 12 with PostgreSQL and Newznab compatible API.
+A modern Spotnet web client built on Laravel 13 with PostgreSQL and a Newznab-compatible API.
 
 ## Why SpotEngine?
 
@@ -9,7 +9,7 @@ A modern Spotnet web client built on Laravel 12 with PostgreSQL and Newznab comp
 SpotEngine aims to provide the same core experience, browsing and downloading Spotnet spots, with a clean, modern codebase that is a joy to work on:
 
 - **Modern UI**: Tailwind CSS v4, responsive layout, and a straightforward browsing experience for spots and categories.
-- **Laravel 12**: modern conventions, first-class tooling, expressive APIs. Optionally with Laravel Octane and FrankenPHP for even better performance.
+- **Laravel 13**: modern conventions, first-class tooling, expressive APIs. Optionally with Laravel Octane and FrankenPHP for even better performance.
 - **PostgreSQL**: JSONB with GIN indexes for subcategory filtering, `tsvector`/`tsquery` full-text search with a single GIN index across title and description, and a descending index on `spot_posted_at` for fast listing queries
 - **Newznab-compatible API**: Can be used with tools like Sonarr, Radarr, and similar automation software.
 - **Extensible search**: `SearchDriver` contract with PostgreSQL full-text search by default and optional Manticore for larger installations.
@@ -20,8 +20,8 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 ## Requirements
 
 - PHP 8.5+
-- PostgreSQL 16+
-- Redis 7+
+- PostgreSQL 16+ (PostgreSQL 18 is used by Docker and CI and is the recommended database)
+- A Redis-compatible server (Redis 7+ or Valkey)
 - [Bun](https://bun.sh)
 
 ## Setup
@@ -36,7 +36,7 @@ This installs dependencies, generates an application key, runs migrations, and b
 
 ## Docker
 
-Use Docker Compose with FrankenPHP/PostgreSQL/Redis:
+Use Docker Compose with FrankenPHP/PostgreSQL/Valkey:
 
 - See [DOCKER.md](DOCKER.md)
 
@@ -46,7 +46,7 @@ Docker images in this repository are pinned to FrankenPHP PHP 8.5 variants.
 
 ### How to get started
 
-1. **Configure `.env`**: Copy `.env.example` to `.env` and fill in your database, Redis, and NNTP settings (see [Configuration](#configuration)).
+1. **Configure `.env`**: Copy `.env.example` to `.env` and fill in your database, Redis/Valkey, and NNTP settings (see [Configuration](#configuration)).
 2. **Install PHP dependencies**:
     ```bash
     composer install
@@ -92,7 +92,7 @@ That runs the same stack (queue, Pail, Vite) but serves the app via `php artisan
 **When using Octane:**
 
 - Keep sessions in `database` or `redis` (not `file`).
-- Optionally set `CACHE_STORE=octane` in `.env` for in-memory cache; otherwise your existing cache driver is fine. Octane as a cache store does not work with FrankenPHP, only Swoole or OpenSwoole. By default this project uses FrankenPHP.
+- Redis remains the default cache store. Optionally set `CACHE_STORE=octane` in `.env` for in-memory cache. Octane as a cache store does not work with FrankenPHP, only Swoole or OpenSwoole. By default this project uses FrankenPHP.
 - Optional env: `OCTANE_SERVER` (default `frankenphp`), `OCTANE_HTTPS` for generated URLs.
 
 ## Configuration
