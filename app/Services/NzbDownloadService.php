@@ -52,43 +52,18 @@ class NzbDownloadService
         return $this->fetchGzippedNzbForSpot($spot);
     }
 
-    private function fetchGzippedNzbForSpot(Spot $spot): string
-    {
-        $cachePath = $this->cachePath($spot);
-
-        $cached = $this->readGzippedCache($cachePath);
-
-        if ($cached !== null) {
-            return $cached;
-        }
-
-        $config = $this->nntpService->getConfig();
-        $nntp = $this->nntpService->makeDriver(driver: 'single');
-
-        try {
-            $nzb = $this->fetchWithConnectedDriver($spot, $nntp, $config);
-        } catch (\RuntimeException $primaryException) {
-            $nzb = $this->fetchFromAlternateProvider($spot, $config, $primaryException);
-        }
-
-        $gzippedNzb = $this->encodeNzb($nzb);
-        $this->writeToCache($cachePath, $gzippedNzb);
-
-        return $gzippedNzb;
-    }
-
     /**
      * Fetch NZB using a pre-connected NNTP driver (for batch operations like precaching).
      */
     public function fetchNzbWithDriver(Spot $spot, SingleNntpDriver $nntp): string
     {
-        $cachePath = $this->cachePath($spot);
-
-        $cached = $this->readGzippedCache($cachePath);
+        $cached = $this->readGzippedCache($spot);
 
         if ($cached !== null) {
             return $this->decodeGzippedNzb($cached);
         }
+
+        $cachePath = $this->cachePath($spot);
 
         $config = $this->nntpService->getConfig();
 
@@ -110,7 +85,7 @@ class NzbDownloadService
     {
         $clean = preg_replace('/[^a-zA-Z0-9_\-.]/', '_', $spot->title);
 
-        return substr((string) $clean, 0, 100).'.nzb';
+        return substr((string) $clean, 0, 100) . '.nzb';
     }
 
     /**
@@ -118,10 +93,50 @@ class NzbDownloadService
      */
     public function cachePath(Spot $spot): string
     {
+        return $this->buildCachePath($spot, 'nzb.gz');
+    }
+
+    public function isCached(Spot $spot): bool
+    {
+        return is_file($this->cachePath($spot)) || is_file($this->legacyCachePath($spot));
+    }
+
+    private function fetchGzippedNzbForSpot(Spot $spot): string
+    {
+        $cached = $this->readGzippedCache($spot);
+
+        if ($cached !== null) {
+            return $cached;
+        }
+
+        $cachePath = $this->cachePath($spot);
+
+        $config = $this->nntpService->getConfig();
+        $nntp = $this->nntpService->makeDriver(driver: 'single');
+
+        try {
+            $nzb = $this->fetchWithConnectedDriver($spot, $nntp, $config);
+        } catch (\RuntimeException $primaryException) {
+            $nzb = $this->fetchFromAlternateProvider($spot, $config, $primaryException);
+        }
+
+        $gzippedNzb = $this->encodeNzb($nzb);
+        $this->writeToCache($cachePath, $gzippedNzb);
+
+        return $gzippedNzb;
+    }
+
+    private function legacyCachePath(Spot $spot): string
+    {
+        return $this->buildCachePath($spot, 'nzb');
+    }
+
+    private function buildCachePath(Spot $spot, string $extension): string
+    {
         return nestedCachePath(
             (string) config('spotengine.cache.nzb_path'),
-            md5('nzb.'.$spot->id),
-            'nzb',
+            md5('nzb.' . $spot->id),
+            $extension,
         );
     }
 
@@ -162,15 +177,38 @@ class NzbDownloadService
         return $this->fetchWithConnectedDriver($spot, $alternate, $config);
     }
 
-    private function readGzippedCache(string $cachePath): ?string
+    private function readGzippedCache(Spot $spot): ?string
     {
-        if (! file_exists($cachePath)) {
+        $cachePath = $this->cachePath($spot);
+
+        if (is_file($cachePath)) {
+            return $this->normalizeCachedPayload($cachePath);
+        }
+
+        $legacyPath = $this->legacyCachePath($spot);
+
+        if (! is_file($legacyPath)) {
             return null;
         }
 
-        $cached = file_get_contents($cachePath);
+        $cached = $this->readCacheFile($legacyPath);
 
-        if ($cached === false) {
+        if ($cached === null) {
+            return null;
+        }
+
+        $gzipped = $this->isGzipped($cached) ? $cached : $this->encodeNzb($cached);
+        $this->writeToCache($cachePath, $gzipped);
+        @unlink($legacyPath);
+
+        return $gzipped;
+    }
+
+    private function normalizeCachedPayload(string $cachePath): ?string
+    {
+        $cached = $this->readCacheFile($cachePath);
+
+        if ($cached === null) {
             return null;
         }
 
@@ -182,6 +220,13 @@ class NzbDownloadService
         $this->writeToCache($cachePath, $gzipped);
 
         return $gzipped;
+    }
+
+    private function readCacheFile(string $path): ?string
+    {
+        $cached = file_get_contents($path);
+
+        return $cached === false ? null : $cached;
     }
 
     private function encodeNzb(string $nzb): string
