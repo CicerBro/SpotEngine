@@ -142,9 +142,15 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
                     fwrite($writePipe, $payload);
                     $exitCode = 0;
                 } catch (\Throwable $exception) {
+                    $error = $exception::class . ': ' . $exception->getMessage();
+
+                    if (strlen($error) > 4096) {
+                        $error = substr($error, 0, 4096) . ' [truncated]';
+                    }
+
                     $payload = json_encode([
                         'ok' => false,
-                        'error' => $exception::class . ': ' . $exception->getMessage(),
+                        'error' => $error,
                     ], JSON_THROW_ON_ERROR);
                     fwrite($writePipe, $payload);
                     $exitCode = 1;
@@ -178,9 +184,12 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
     /** @param resource $readPipe */
     private function awaitUpsertChild(int $childPid, mixed $readPipe): int
     {
-        $waitedPid = pcntl_waitpid($childPid, $childStatus);
+        // Drain the pipe before waiting for the child to exit. Error payloads can
+        // exceed the socket buffer; waiting first deadlocks when the child blocks
+        // in fwrite() while the parent blocks in waitpid().
         $payload = stream_get_contents($readPipe);
         fclose($readPipe);
+        $waitedPid = pcntl_waitpid($childPid, $childStatus);
 
         $result = null;
 
