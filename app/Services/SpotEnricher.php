@@ -24,6 +24,7 @@ class SpotEnricher
         private readonly NntpService $nntpService,
         private readonly SpotParser $parser,
         private readonly SigningService $signer,
+        private readonly SpotMutationService $spotMutations,
     ) {}
 
     /**
@@ -41,7 +42,7 @@ class SpotEnricher
         $headers = $this->fetchHead($spot);
 
         if ($headers === null) {
-            $spot->update(['xml_signature' => '']);
+            $this->spotMutations->update($spot, ['xml_signature' => '']);
 
             return false;
         }
@@ -49,7 +50,7 @@ class SpotEnricher
         $parsed = $this->parser->parseFromHeaders($headers);
 
         if ($parsed === null) {
-            $spot->update(['xml_signature' => '']);
+            $this->spotMutations->update($spot, ['xml_signature' => '']);
 
             return false;
         }
@@ -60,7 +61,7 @@ class SpotEnricher
 
         $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== '' && $this->signer->verify($xmlContent, $xmlSignature, $userKey);
 
-        $spot->update([
+        $this->spotMutations->update($spot, [
             'description' => $parsed['description'] ?? null,
             'nzb_segments' => $parsed['nzb_segments'] ?? [],
             'image_segment' => $parsed['image_segment'] ?? null,
