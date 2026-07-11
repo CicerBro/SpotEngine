@@ -194,9 +194,14 @@ test('API tvsearch supports its advertised TV identifiers', function () {
         'website' => 'https://www.tvmaze.com/shows/12345/example',
         'subcategories' => ['01z01'],
     ]);
-    $tvrage = Spot::factory()->inCategory('01')->create([
-        'title' => 'TVRage identifier match',
-        'description' => 'Imported metadata: rid:67890',
+    $tvdb = Spot::factory()->inCategory('01')->create([
+        'title' => 'TVDB identifier match',
+        'description' => 'Imported metadata: tvdbid:67890',
+        'subcategories' => ['01z01'],
+    ]);
+    $tmdb = Spot::factory()->inCategory('01')->create([
+        'title' => 'TMDB identifier match',
+        'website' => 'https://www.themoviedb.org/tv/24680/example',
         'subcategories' => ['01z01'],
     ]);
 
@@ -207,23 +212,40 @@ test('API tvsearch supports its advertised TV identifiers', function () {
     ]))
         ->assertSuccessful()
         ->assertSee($tvmaze->title)
-        ->assertDontSee($tvrage->title);
+        ->assertDontSee($tvdb->title)
+        ->assertDontSee($tmdb->title);
 
     $this->get(route('api', [
         't' => 'tvsearch',
         'apikey' => $user->api_token,
-        'rid' => '67890',
+        'tvdbid' => '67890',
     ]))
         ->assertSuccessful()
-        ->assertSee($tvrage->title)
-        ->assertDontSee($tvmaze->title);
+        ->assertSee($tvdb->title)
+        ->assertDontSee($tvmaze->title)
+        ->assertDontSee($tmdb->title);
+
+    $this->get(route('api', [
+        't' => 'tvsearch',
+        'apikey' => $user->api_token,
+        'tmdbid' => '24680',
+    ]))
+        ->assertSuccessful()
+        ->assertSee($tmdb->title)
+        ->assertDontSee($tvmaze->title)
+        ->assertDontSee($tvdb->title);
 });
 
-test('API movie search supports imdbid metadata', function () {
+test('API movie search supports imdbid and tmdbid metadata', function () {
     $user = User::factory()->create();
-    $match = Spot::factory()->inCategory('01')->create([
+    $imdbMatch = Spot::factory()->inCategory('01')->create([
         'title' => 'IMDb identifier match',
         'website' => 'https://www.imdb.com/title/tt1234567/',
+        'subcategories' => ['01z00'],
+    ]);
+    $tmdbMatch = Spot::factory()->inCategory('01')->create([
+        'title' => 'TMDB identifier match',
+        'website' => 'https://www.themoviedb.org/movie/9876543/example',
         'subcategories' => ['01z00'],
     ]);
     $other = Spot::factory()->inCategory('01')->create([
@@ -236,16 +258,26 @@ test('API movie search supports imdbid metadata', function () {
         'subcategories' => ['01z01'],
     ]);
 
-    $response = $this->get(route('api', [
+    $this->get(route('api', [
         't' => 'movie',
         'apikey' => $user->api_token,
         'imdbid' => '1234567',
-    ]));
+    ]))
+        ->assertSuccessful()
+        ->assertSee($imdbMatch->title)
+        ->assertDontSee($other->title)
+        ->assertDontSee($series->title);
 
-    $response->assertSuccessful();
-    $response->assertSee($match->title);
-    $response->assertDontSee($other->title);
-    $response->assertDontSee($series->title);
+    $this->get(route('api', [
+        't' => 'movie',
+        'apikey' => $user->api_token,
+        'tmdbid' => '9876543',
+    ]))
+        ->assertSuccessful()
+        ->assertSee($tmdbMatch->title)
+        ->assertDontSee($imdbMatch->title)
+        ->assertDontSee($other->title)
+        ->assertDontSee($series->title);
 });
 
 test('API search tvsearch and movie use the manticore query contract', function () {

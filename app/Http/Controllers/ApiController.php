@@ -64,8 +64,8 @@ class ApiController extends Controller
           <registration available="no" open="no"/>
           <searching>
             <search available="yes" supportedParams="q"/>
-            <tv-search available="yes" supportedParams="q,rid,tvmazeid,season,ep"/>
-            <movie-search available="yes" supportedParams="q,imdbid"/>
+            <tv-search available="yes" supportedParams="q,tvdbid,tmdbid,tvmazeid,season,ep"/>
+            <movie-search available="yes" supportedParams="q,imdbid,tmdbid"/>
             <pc-search available="yes" supportedParams="q"/>
             <audio-search available="yes" supportedParams="q"/>
           </searching>
@@ -155,10 +155,17 @@ class ApiController extends Controller
             );
         }
 
-        if ($request->filled('rid')) {
+        if ($request->filled('tvdbid')) {
             $metadataTermGroups[] = $this->tvIdentifierTerms(
-                'tvrage',
-                (string) $request->input('rid'),
+                'tvdb',
+                (string) $request->input('tvdbid'),
+            );
+        }
+
+        if ($request->filled('tmdbid')) {
+            $metadataTermGroups[] = $this->tmdbIdentifierTerms(
+                (string) $request->input('tmdbid'),
+                forTelevision: true,
             );
         }
 
@@ -180,9 +187,19 @@ class ApiController extends Controller
         $limit = min(100, max(1, (int) $request->input('limit', 50)));
         $offset = max(0, (int) $request->input('offset', 0));
 
-        $metadataTermGroups = $request->filled('imdbid')
-            ? [$this->imdbIdentifierTerms((string) $request->input('imdbid'))]
-            : [];
+        $metadataTermGroups = [];
+
+        if ($request->filled('imdbid')) {
+            $metadataTermGroups[] = $this->imdbIdentifierTerms((string) $request->input('imdbid'));
+        }
+
+        if ($request->filled('tmdbid')) {
+            $metadataTermGroups[] = $this->tmdbIdentifierTerms(
+                (string) $request->input('tmdbid'),
+                forTelevision: false,
+            );
+        }
+
         $spots = $this->searchDriver->paginate(new SpotSearchCriteria(
             term: $query !== '' ? $query : null,
             category: '01',
@@ -257,15 +274,38 @@ class ApiController extends Controller
 
         return match ($provider) {
             'tvmaze' => ["tvmaze.com/shows/{$identifier}", "tvmaze:{$identifier}", "tvmazeid:{$identifier}"],
-            'tvrage' => [
-                "tvrage.com/{$identifier}",
-                "tvrage.com/shows/{$identifier}",
-                "tvrage.com/shows/id-{$identifier}",
-                "tvrage:{$identifier}",
-                "rid:{$identifier}",
+            'tvdb' => [
+                "thetvdb.com/series/{$identifier}",
+                "thetvdb.com/?tab=series&id={$identifier}",
+                "tvdb.com/series/{$identifier}",
+                "tvdb:series:{$identifier}",
+                "tvdbid:{$identifier}",
+                "tvdbid-{$identifier}",
             ],
             default => ['__invalid_tv_provider__'],
         };
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function tmdbIdentifierTerms(string $identifier, bool $forTelevision): array
+    {
+        $identifier = trim($identifier);
+
+        if (preg_match('/^\d+$/', $identifier) !== 1) {
+            return ['__invalid_tmdb_identifier__'];
+        }
+
+        $path = $forTelevision ? 'tv' : 'movie';
+
+        return [
+            "themoviedb.org/{$path}/{$identifier}",
+            "tmdb.org/{$path}/{$identifier}",
+            "tmdb:{$path}:{$identifier}",
+            "tmdbid:{$identifier}",
+            "tmdbid-{$identifier}",
+        ];
     }
 
     /**

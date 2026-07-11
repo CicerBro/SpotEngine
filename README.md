@@ -185,12 +185,20 @@ SpotEngine exposes a Newznab-compatible API at `/api`. Supported operations:
 
 - `t=caps`: server capabilities
 - `t=search`: general search
-- `t=tvsearch`: TV search with `season`, `ep`, `rid`, and `tvmazeid`
-- `t=movie`: movie search with `q` and `imdbid`
+- `t=tvsearch`: TV search with `season`, `ep`, `tvdbid`, `tmdbid`, and `tvmazeid`
+- `t=movie`: movie search with `q`, `imdbid`, and `tmdbid`
 - `t=details`: spot details
 - `t=get`: download NZB
 
-Search responses honor arbitrary `offset` values and limits up to 100. External IDs are matched against the source metadata fields that contain IMDb, TVmaze, or TVRage URLs/tokens. Authenticate with `?apikey=YOUR_KEY`; API keys are shown on the profile page. Requests are limited to 60 per minute per user or guest IP by default.
+Search responses honor arbitrary `offset` values and limits up to 100. Authenticate with `?apikey=YOUR_KEY`; API keys are shown on the profile page. Requests are limited to 60 per minute per user or guest IP by default.
+
+### TV and movie search
+
+`tvsearch` and `movie` accept external IDs (`tvmazeid`, `tvdbid`, `tmdbid`, `imdbid`) in addition to text queries. Season and episode filters expand into common title patterns (for example `S05`, `Season 5`, `Seizoen 5`).
+
+External IDs are **not** resolved through IMDb, TVmaze, TVDB, or TMDB APIs today. Instead, the API looks for identifier strings already present in a spot's `website`, `description`, or `title` (for example `tvmaze.com/shows/12345`, `thetvdb.com/series/67890`, or `tt1234567`). A release titled `Suits - Seizoen 5` with no linked metadata will not match `tvmazeid`, even if Sonarr knows the show ID.
+
+This is a known limitation. See [TODO](#todo) for planned improvements: either maintain a local show/movie reference table keyed by external IDs, or resolve titles from provider APIs at search time (Spotweb-style) and search on those.
 
 Downloaded spots are recorded in `user_downloads`. Saved filters, excluded-subcategory filtering, and watchlists are intentionally not exposed in the UI until complete product behavior exists; the existing tables remain in place for migration compatibility.
 
@@ -230,3 +238,4 @@ vendor/bin/pint
 
 - [ ] Comments and reports are not handled; we currently do nothing with them
 - [ ] Add theme feature so users can write their own themes
+- [ ] Properly handle TV and movie API searches — see [TV and movie search](#tv-and-movie-search). Today `tvmazeid`, `tvdbid`, `tmdbid`, and `imdbid` only match when the ID already appears in spot metadata (`website`, `description`, or `title`). Either maintain a local show/movie reference table keyed by external IDs, or resolve titles from provider APIs at search time (Spotweb-style) and use those to search.
