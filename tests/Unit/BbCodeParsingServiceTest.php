@@ -8,6 +8,18 @@ beforeEach(function () {
     $this->parser = new BbCodeParsingService;
 });
 
+test('is scoped to the current Laravel lifecycle', function () {
+    $first = app(BbCodeParsingService::class);
+    $second = app(BbCodeParsingService::class);
+
+    app()->forgetScopedInstances();
+
+    $third = app(BbCodeParsingService::class);
+
+    expect($first)->toBe($second)
+        ->and($third)->not->toBe($first);
+});
+
 test('returns empty string for null or empty input', function () {
     expect($this->parser->parse(null))->toBe('');
     expect($this->parser->parse(''))->toBe('');

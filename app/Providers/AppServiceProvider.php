@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Providers;
 
 use App\Models\Category;
+use App\Services\BbCodeParsingService;
 use Carbon\CarbonImmutable;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Database\Eloquent\Model;
@@ -21,7 +22,10 @@ class AppServiceProvider extends ServiceProvider
      * Register any application services.
      */
     #[\Override]
-    public function register(): void {}
+    public function register(): void
+    {
+        $this->app->scoped(BbCodeParsingService::class);
+    }
 
     /**
      * Bootstrap any application services.
