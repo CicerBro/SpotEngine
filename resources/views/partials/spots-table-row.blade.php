@@ -41,7 +41,7 @@ $rowBgClass = $rootCategory?->rowBackgroundClass() ?? 'hover:bg-gray-100/60';
         {{ $spot->size_formatted }}
     </td>
     <td class="px-3 py-1.5 text-center">
-        @if(!empty($spot->nzb_segments))
+        @if($spot->has_nzb)
             @auth
                 <a href="{{ route('spots.nzb', $spot) }}"
                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-600 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1">
@@ -78,7 +78,7 @@ $rowBgClass = $rootCategory?->rowBackgroundClass() ?? 'hover:bg-gray-100/60';
                 </span>
                 <div class="flex items-center gap-2 shrink-0">
                     <span class="text-xs text-gray-500 font-mono">{{ $spot->size_formatted }}</span>
-                    @if(!empty($spot->nzb_segments))
+                    @if($spot->has_nzb)
                         @auth
                             <a href="{{ route('spots.nzb', $spot) }}"
                                class="text-xs px-2 py-0.5 bg-blue-600 text-white rounded font-medium hover:bg-blue-700 transition-colors">

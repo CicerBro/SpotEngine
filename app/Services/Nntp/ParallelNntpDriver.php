@@ -40,12 +40,23 @@ class ParallelNntpDriver implements NntpDriverInterface
 
     private int $readBufferSize = 65536;
 
+    private readonly NntpConnectionConfig $connectionConfig;
+
+    private readonly NntpEndpoint $endpoint;
+
+    private readonly SpotnetHeaderParser $headerParser;
+
     /** @param array<string, mixed> $config */
-    public function __construct(private array $config, int $numConnections = 20)
-    {
-        // Cap at 200 to avoid hitting server connection limits
+    public function __construct(
+        private array $config,
+        int $numConnections = 20,
+        private readonly ?\Closure $connector = null,
+    ) {
+        $this->connectionConfig = NntpConnectionConfig::fromArray($config);
+        $this->endpoint = $this->connectionConfig->primary;
+        $this->headerParser = new SpotnetHeaderParser;
         $this->numConnections = max(1, min($numConnections, 200));
-        $this->timeout = (int) ($this->config['timeout'] ?? 60);
+        $this->timeout = $this->endpoint->timeout;
     }
 
     /**
@@ -79,7 +90,7 @@ class ParallelNntpDriver implements NntpDriverInterface
         }
 
         if ($this->sockets === []) {
-            throw new \RuntimeException('Failed to establish any connections');
+            throw new NntpException('Failed to establish any NNTP connections', operation: 'connect');
         }
     }
 
@@ -164,7 +175,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                             case 'wait_greeting':
                                 if (str_starts_with($line, '200') || str_starts_with($line, '201')) {
                                     if (! empty($this->config['username'])) {
-                                        fwrite($socket, "AUTHINFO USER {$this->config['username']}\r\n");
+                                        $this->sendCommand($socket, "AUTHINFO USER {$this->endpoint->username}");
                                         $pending[$idx]['state'] = 'wait_user';
                                     } else {
                                         $ready[] = $socket;
@@ -178,7 +189,7 @@ class ParallelNntpDriver implements NntpDriverInterface
 
                             case 'wait_user':
                                 if (str_starts_with($line, '381')) {
-                                    fwrite($socket, "AUTHINFO PASS {$this->config['password']}\r\n");
+                                    $this->sendCommand($socket, "AUTHINFO PASS {$this->endpoint->password}");
                                     $pending[$idx]['state'] = 'wait_pass';
                                 } elseif (str_starts_with($line, '281')) {
                                     $ready[] = $socket;
@@ -223,13 +234,7 @@ class ParallelNntpDriver implements NntpDriverInterface
      */
     private function connectSSL(string $host, int|string $port): void
     {
-        $context = stream_context_create([
-            'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-                'allow_self_signed' => true,
-            ],
-        ]);
+        $context = stream_context_create($this->endpoint->streamContextOptions());
 
         $pending = [];
 
@@ -291,7 +296,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                             if ($line && trim($line) !== '') {
                                 if (str_starts_with($line, '200') || str_starts_with($line, '201')) {
                                     if (! empty($this->config['username'])) {
-                                        fwrite($socket, "AUTHINFO USER {$this->config['username']}\r\n");
+                                        $this->sendCommand($socket, "AUTHINFO USER {$this->endpoint->username}");
                                         $data['state'] = 'wait_user';
                                         $data['retries'] = 0;
                                     } else {
@@ -317,7 +322,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                             $line = @fgets($socket, 4096);
                             if ($line && trim($line) !== '') {
                                 if (str_starts_with($line, '381')) {
-                                    fwrite($socket, "AUTHINFO PASS {$this->config['password']}\r\n");
+                                    $this->sendCommand($socket, "AUTHINFO PASS {$this->endpoint->password}");
                                     $data['state'] = 'wait_pass';
                                     $data['retries'] = 0;
                                 } elseif (str_starts_with($line, '281')) {
@@ -419,7 +424,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                 $response = $this->readLine($socket);
 
                 if ($response === false || ! str_starts_with($response, '211')) {
-                    throw new \RuntimeException("Failed to select group: $response");
+                    throw new NntpException("Failed to select group: $response", operation: 'GROUP');
                 }
 
                 $parts = explode(' ', $response);
@@ -443,7 +448,11 @@ class ParallelNntpDriver implements NntpDriverInterface
         }
 
         if ($pending !== []) {
-            throw new \RuntimeException('Timed out waiting for GROUP response on '.\count($pending).' connections');
+            throw new NntpException(
+                'Timed out waiting for GROUP response on '.\count($pending).' connections',
+                operation: 'GROUP',
+                timedOut: true,
+            );
         }
 
         // Drop connections on clearly stale backends (more than 100 articles behind
@@ -493,7 +502,7 @@ class ParallelNntpDriver implements NntpDriverInterface
     public function xover(int $start, int $end): array
     {
         if ($this->sockets === []) {
-            throw new \RuntimeException('Not connected');
+            throw new NntpException('Not connected', operation: 'XOVER');
         }
 
         $numSockets = \count($this->sockets);
@@ -514,7 +523,7 @@ class ParallelNntpDriver implements NntpDriverInterface
             }
 
             $sliceEnd = min($pos + $sliceSize - 1, $end);
-            fwrite($socket, "XOVER $pos-$sliceEnd\r\n");
+            $this->sendCommand($socket, "XOVER $pos-$sliceEnd");
             $slices[$idx] = true;
             $pos = $sliceEnd + 1;
         }
@@ -547,9 +556,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                 $data = @fread($socket, $this->readBufferSize);
 
                 if ($data === false || ($data === '' && feof($socket))) {
-                    $active = array_values(array_diff($active, [$idx]));
-
-                    continue;
+                    throw new NntpException('NNTP connection closed during incomplete XOVER response', operation: 'XOVER');
                 }
 
                 if ($data === '') {
@@ -572,7 +579,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                         if (str_starts_with($line, '224')) {
                             $states[$idx] = 'reading';
                         } else {
-                            $active = array_values(array_diff($active, [$idx]));
+                            throw new NntpException("XOVER failed: {$line}", statusText: $line, operation: 'XOVER');
                         }
 
                         break;
@@ -601,6 +608,14 @@ class ParallelNntpDriver implements NntpDriverInterface
 
         foreach ($this->sockets as $socket) {
             stream_set_blocking($socket, true);
+        }
+
+        if ($active !== []) {
+            throw new NntpException(
+                'Timed out waiting for incomplete XOVER response on '.\count($active).' connections',
+                operation: 'XOVER',
+                timedOut: true,
+            );
         }
 
         return $results;
@@ -687,9 +702,9 @@ class ParallelNntpDriver implements NntpDriverInterface
                 $next = $queue->dequeue();
                 $pending[$newIdx] = $next;
                 $buffers[$newIdx] = '';
-                $states[$newIdx] = ['status' => 'wait_response', 'headers' => [], 'currentHeader' => '', 'currentValue' => ''];
+                $states[$newIdx] = ['status' => 'wait_response', 'parser' => $this->headerParser->start()];
                 $deadlines[$newIdx] = microtime(true) + 3.0;
-                fwrite($newSocket, $headCmd($next));
+                $this->sendCommand($newSocket, rtrim($headCmd($next), "\r\n"));
             }
         };
 
@@ -701,9 +716,9 @@ class ParallelNntpDriver implements NntpDriverInterface
             $articleNum = $queue->dequeue();
             $pending[$idx] = $articleNum;
             $buffers[$idx] = '';
-            $states[$idx] = ['status' => 'wait_response', 'headers' => [], 'currentHeader' => '', 'currentValue' => ''];
+            $states[$idx] = ['status' => 'wait_response', 'parser' => $this->headerParser->start()];
             $deadlines[$idx] = microtime(true) + 3.0;
-            fwrite($socket, $headCmd($articleNum));
+            $this->sendCommand($socket, rtrim($headCmd($articleNum), "\r\n"));
         }
 
         while ($pending !== []) {
@@ -784,50 +799,13 @@ class ParallelNntpDriver implements NntpDriverInterface
                     }
 
                     if ($line === '.') {
-                        if ($states[$idx]['currentHeader'] !== '') {
-                            $states[$idx]['headers'][$states[$idx]['currentHeader']] = $this->decodeHeader($states[$idx]['currentValue']);
-                        }
-
-                        $record($articleNum, $states[$idx]['headers']);
+                        $record($articleNum, $this->headerParser->finish($states[$idx]['parser']));
                         $this->headDispatchNext($idx, $socket, $pending, $states, $deadlines, $queue, $done, $total, $startTime, $showProgress);
 
                         continue;
                     }
 
-                    if ($line !== '' && ($line[0] === ' ' || $line[0] === "\t")) {
-                        // Folded continuation: only append when the current header is wanted.
-                        if ($states[$idx]['currentHeader'] !== '') {
-                            $states[$idx]['currentValue'] .= ltrim($line);
-                        }
-
-                        continue;
-                    }
-
-                    $colonPos = strpos($line, ':');
-
-                    if ($colonPos !== false) {
-                        $name = strtolower(substr($line, 0, $colonPos));
-
-                        if ($name === $states[$idx]['currentHeader']) {
-                            // Spotnet splits long headers (X-XML) by repeating the header
-                            // name on each continuation line. Concatenate without separator.
-                            $states[$idx]['currentValue'] .= ltrim(substr($line, $colonPos + 1));
-                        } else {
-                            // Flush the previous header before switching to a new one.
-                            if ($states[$idx]['currentHeader'] !== '') {
-                                $states[$idx]['headers'][$states[$idx]['currentHeader']] = $this->decodeHeader($states[$idx]['currentValue']);
-                            }
-
-                            // Only track headers that SpotParser actually reads.
-                            if (isset(self::WANTED_HEADERS[$name])) {
-                                $states[$idx]['currentHeader'] = $name;
-                                $states[$idx]['currentValue'] = ltrim(substr($line, $colonPos + 1));
-                            } else {
-                                $states[$idx]['currentHeader'] = '';
-                                $states[$idx]['currentValue'] = '';
-                            }
-                        }
-                    }
+                    $this->headerParser->consume($states[$idx]['parser'], $line, self::WANTED_HEADERS);
                 }
             }
         }
@@ -886,10 +864,10 @@ class ParallelNntpDriver implements NntpDriverInterface
         if (! $queue->isEmpty()) {
             $next = $queue->dequeue();
             $pending[$idx] = $next;
-            $states[$idx] = ['status' => 'wait_response', 'headers' => [], 'currentHeader' => '', 'currentValue' => ''];
+            $states[$idx] = ['status' => 'wait_response', 'parser' => $this->headerParser->start()];
             $deadlines[$idx] = microtime(true) + 3.0;
             $headId = is_int($next) ? (string) $next : "<$next>";
-            fwrite($socket, "HEAD $headId\r\n");
+            $this->sendCommand($socket, "HEAD $headId");
         } else {
             unset($pending[$idx], $deadlines[$idx]);
         }
@@ -907,77 +885,55 @@ class ParallelNntpDriver implements NntpDriverInterface
      */
     private function reconnectOne(): mixed
     {
-        $useSSL = $this->config['ssl'] ?? true;
-        $host = $this->config['host'];
-        $port = $this->config['port'];
         $reconnectTimeout = 5;
-
-        $context = $useSSL ? stream_context_create([
-            'ssl' => [
-                'verify_peer' => false,
-                'verify_peer_name' => false,
-                'allow_self_signed' => true,
-            ],
-        ]) : null;
-
-        $socket = @stream_socket_client(
-            ($useSSL ? 'ssl' : 'tcp')."://{$host}:{$port}",
-            $errno,
-            $errstr,
-            $reconnectTimeout,
-            STREAM_CLIENT_CONNECT,
-            $context
-        );
+        $socket = $this->connector instanceof \Closure
+            ? ($this->connector)($this->endpoint, $reconnectTimeout)
+            : @stream_socket_client(
+                $this->endpoint->address(),
+                $errno,
+                $errstr,
+                $reconnectTimeout,
+                STREAM_CLIENT_CONNECT,
+                stream_context_create($this->endpoint->streamContextOptions()),
+            );
 
         if (! $socket) {
             return null;
         }
 
         stream_set_timeout($socket, $reconnectTimeout);
+        $protocol = NntpProtocol::forResource($socket, $this->readBufferSize);
 
-        $line = $this->readLine($socket);
+        try {
+            $response = $protocol->readResponse();
 
-        if ($line === false || (! str_starts_with($line, '200') && ! str_starts_with($line, '201'))) {
+            if (! $response->is(ResponseCode::ReadyPostingAllowed, ResponseCode::ReadyPostingProhibited)) {
+                throw NntpException::unexpected('connect', $response);
+            }
+
+            if ($this->endpoint->username !== '' && $this->endpoint->username !== '0') {
+                $response = $protocol->command("AUTHINFO USER {$this->endpoint->username}");
+
+                if ($response->is(ResponseCode::AuthenticationContinue)) {
+                    $response = $protocol->command("AUTHINFO PASS {$this->endpoint->password}");
+                }
+
+                if (! $response->is(ResponseCode::AuthenticationAccepted)) {
+                    throw NntpException::unexpected('AUTHINFO', $response);
+                }
+            }
+
+            if ($this->currentGroup !== '') {
+                $response = $protocol->command("GROUP {$this->currentGroup}");
+
+                if (! $response->is(ResponseCode::GroupSelected)) {
+                    throw NntpException::unexpected('GROUP', $response);
+                }
+            }
+        } catch (NntpException) {
             @fclose($socket);
 
             return null;
-        }
-
-        if (! empty($this->config['username'])) {
-            fwrite($socket, "AUTHINFO USER {$this->config['username']}\r\n");
-            $line = $this->readLine($socket);
-
-            if ($line === false) {
-                @fclose($socket);
-
-                return null;
-            }
-
-            if (str_starts_with($line, '381')) {
-                fwrite($socket, "AUTHINFO PASS {$this->config['password']}\r\n");
-                $line = $this->readLine($socket);
-
-                if ($line === false || ! str_starts_with($line, '281')) {
-                    @fclose($socket);
-
-                    return null;
-                }
-            } elseif (! str_starts_with($line, '281')) {
-                @fclose($socket);
-
-                return null;
-            }
-        }
-
-        if ($this->currentGroup !== '') {
-            fwrite($socket, "GROUP {$this->currentGroup}\r\n");
-            $line = $this->readLine($socket);
-
-            if ($line === false || ! str_starts_with($line, '211')) {
-                @fclose($socket);
-
-                return null;
-            }
         }
 
         stream_set_timeout($socket, $this->timeout);
@@ -1023,7 +979,7 @@ class ParallelNntpDriver implements NntpDriverInterface
     /** @param resource $socket */
     private function sendCommand($socket, string $command): void
     {
-        fwrite($socket, "$command\r\n");
+        NntpProtocol::forResource($socket, $this->readBufferSize)->writeCommand($command);
     }
 
     /** @param resource $socket */
@@ -1036,21 +992,6 @@ class ParallelNntpDriver implements NntpDriverInterface
         }
 
         return rtrim($line, "\r\n");
-    }
-
-    /**
-     * Decode RFC 2047 MIME-encoded words (e.g. =?UTF-8?B?...?= in From headers).
-     * The early-return guard avoids iconv for plain ASCII values.
-     */
-    private function decodeHeader(string $header): string
-    {
-        if (! str_contains($header, '=?')) {
-            return $header;
-        }
-
-        $decoded = iconv_mime_decode($header, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, 'UTF-8');
-
-        return $decoded !== false ? $decoded : $header;
     }
 
     public function __destruct()

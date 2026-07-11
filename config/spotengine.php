@@ -22,6 +22,7 @@ return [
         'password' => env('NNTP_PASSWORD', ''),
         'timeout' => (int) env('NNTP_TIMEOUT', 60),
         'connections' => (int) env('NNTP_CONNECTIONS', 20),
+        'verify_peer' => (bool) env('NNTP_TLS_VERIFY', true),
         'groups' => [
             'spots' => env('NNTP_GROUP_SPOTS', 'free.pt'),
             'nzb' => env('NNTP_GROUP_NZB', 'alt.binaries.ftd'),
@@ -77,5 +78,5 @@ return [
     ],
 
     /** Whether new user registration is allowed. */
-    'registration_open' => (bool) env('REGISTRATION_OPEN', true),
+    'registration_open' => (bool) env('REGISTRATION_OPEN', false),
 ];

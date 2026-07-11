@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers;
 
+use App\Data\SpotSearchCriteria;
 use App\Enums\SearchField;
 use App\Models\Category;
 use App\Models\Spot;
 use App\Services\ListingCacheService;
 use App\Services\Nntp\NntpService;
 use App\Services\NzbDownloadService;
+use App\Services\Search\Contracts\SearchDriver;
 use App\Services\SpotEnricher;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\View\View;
 
 class HomeController extends Controller
 {
@@ -21,19 +25,24 @@ class HomeController extends Controller
         private readonly SpotEnricher $enricher,
         private readonly NzbDownloadService $nzbService,
         private readonly ListingCacheService $listingCache,
+        private readonly SearchDriver $searchDriver,
     ) {}
 
-    public function index(Request $request): \Illuminate\View\View
+    public function index(Request $request): View
     {
         $spots = $this->listingCache->remember($request, function () use ($request) {
-            return Spot::query()
-                ->select(['id', 'title', 'poster', 'file_size', 'spot_posted_at', 'category_code', 'subcategories', 'nzb_segments'])
-                ->with('category:code,name,slug')
-                ->when($request->filled('cat'), fn ($q) => $q->inCategory($request->cat))
-                ->when($request->filled('subcat'), fn ($q) => $q->withSubcategory((array) $request->subcat))
-                ->when($request->filled('q'), fn ($q) => $q->search($request->q, SearchField::fromRequest($request->search_in)))
-                ->latestFirst()
-                ->paginate(max(10, min(100, $request->integer('per_page', 50))))
+            return $this->searchDriver
+                ->paginate(new SpotSearchCriteria(
+                    term: $request->filled('q') ? (string) $request->q : null,
+                    field: SearchField::fromRequest($request->search_in),
+                    category: $request->filled('cat') ? (string) $request->cat : null,
+                    subcategories: array_values(array_filter(
+                        (array) $request->subcat,
+                        \is_string(...),
+                    )),
+                    perPage: max(10, min(100, $request->integer('per_page', 50))),
+                    page: max(1, $request->integer('page', 1)),
+                ))
                 ->withQueryString();
         });
 
@@ -47,7 +56,7 @@ class HomeController extends Controller
         ]);
     }
 
-    public function show(Spot $spot): \Illuminate\View\View
+    public function show(Spot $spot): View
     {
         $this->enricher->enrich($spot);
 
@@ -162,7 +171,7 @@ class HomeController extends Controller
         }
     }
 
-    public function categoriesJson(): \Illuminate\Http\JsonResponse
+    public function categoriesJson(): JsonResponse
     {
         return response()->json(Category::tree());
     }

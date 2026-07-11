@@ -9,7 +9,7 @@
     <div class="flex items-center gap-3 shrink-0">
         {{-- Per page --}}
         <form method="GET" action="{{ route('home') }}">
-            @foreach(array_filter(request()->query(), fn ($k) => !in_array($k, ['per_page', 'page']), ARRAY_FILTER_USE_KEY) as $key => $value)
+            @foreach(array_intersect_key(request()->query(), array_flip(['cat', 'subcat', 'q', 'search_in'])) as $key => $value)
                 @if(is_array($value))
                     @foreach($value as $v)
                         <input type="hidden" name="{{ $key }}[]" value="{{ $v }}">

@@ -12,8 +12,8 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 - **Laravel 13**: modern conventions, first-class tooling, expressive APIs. Optionally with Laravel Octane and FrankenPHP for even better performance.
 - **PostgreSQL**: JSONB with GIN indexes for subcategory filtering, `tsvector`/`tsquery` full-text search with a single GIN index across title and description, and a descending index on `spot_posted_at` for fast listing queries
 - **Newznab-compatible API**: Can be used with tools like Sonarr, Radarr, and similar automation software.
-- **Extensible search**: `SearchDriver` contract with a `DatabaseSearchDriver` (uses PostgreSQL FTS) and a `ManticoreSearchDriver` stub. Currently Manticore is a work in progress. For very busy applications with a lot of API traffic, Manticore is the preferred driver.
-- **Layered caching**: Redis/Valkey cache and sessions by default, plus disk-backed NZB/image caches with configurable pruning.
+- **Extensible search**: `SearchDriver` contract with PostgreSQL full-text search by default and optional Manticore for larger installations.
+- **Redis caching**: categories cached in Redis, NZB/image files cached to disk with a configurable pruning schedule
 - **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval. Initial full scan can be done in under 5 minutes on an Apple M1 Pro.
 - **Two-phase spot retrieval**: Initial scan uses XOVER for fast bulk indexing so the app is usable right away. Enrichment fills in the rest via HEAD requests in the background. See [Spot Retrieval](#spot-retrieval) for details.
 
@@ -63,7 +63,11 @@ Docker images in this repository are pinned to FrankenPHP PHP 8.5 variants.
     ```bash
     php artisan migrate:fresh --seed
     ```
-6. **Default login**: Use **admin** / **changeme123** to sign in.
+6. **Create the first administrator**:
+    ```bash
+    php artisan spot:admin:create
+    ```
+    The command prompts for unique credentials and refuses to run after an administrator exists.
 
 Then start the stack:
 
@@ -99,17 +103,15 @@ Copy `.env.example` to `.env` and fill in:
 | ------------------------------------ | ---------------------------------------------------------------- |
 | `APP_KEY`                            | Required Laravel encryption key                                  |
 | `DB_*`                               | PostgreSQL connection                                            |
-| `CACHE_STORE`                        | `redis` by default for shared cache and locks                    |
-| `SESSION_DRIVER`                     | `redis` by default                                               |
-| `QUEUE_CONNECTION`                   | `database` by default                                            |
-| `REDIS_*`                            | Redis/Valkey connection (`REDIS_CACHE_DB` defaults to `1`)       |
-| `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server                                                    |
+| `REDIS_*`                            | Redis connection (`REDIS_CACHE_DB` defaults to `1`)              |
+| `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server; defaults are TLS on port `563`                    |
+| `NNTP_TLS_VERIFY`                    | Verify the NNTP server certificate (default `true`)              |
 | `NNTP_USERNAME`, `NNTP_PASSWORD`     | Usenet credentials                                               |
 | `NNTP_CONNECTIONS`                   | Parallel connection count (default `20`)                         |
-| `SEARCH_DRIVER`                      | `database` (default) or `manticore` (work in progress)           |
+| `SEARCH_DRIVER`                      | `database` (default) or `manticore`                              |
 | `CACHE_NZB_RETENTION_DAYS`           | Days to keep cached NZB files before pruning (default `30`)      |
 | `CACHE_IMAGE_RETENTION_DAYS`         | Days to keep cached images before pruning (default `30`)         |
-| `REGISTRATION_OPEN`                  | Allow new user registrations (`true`/`false`)                    |
+| `REGISTRATION_OPEN`                  | Allow new user registrations (default `false`)                   |
 | **Optional (Octane)**                |                                                                  |
 | `OCTANE_SERVER`                      | Octane server: `frankenphp` (default), `roadrunner`, `swoole`    |
 | `OCTANE_HTTPS`                       | Set to `true` when serving over HTTPS so URLs use `https://`     |

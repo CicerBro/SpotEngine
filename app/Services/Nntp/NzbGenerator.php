@@ -33,14 +33,16 @@ class NzbGenerator
         $rawParts = [];
 
         foreach ($segments as $segmentId) {
-            $rawParts[] = $this->nntp->body($segmentId);
+            $rawPart = $this->nntp->body($segmentId);
+
+            if ($rawPart === '' || $rawPart === '0') {
+                throw new \RuntimeException("Empty response for NNTP segment {$segmentId}");
+            }
+
+            $rawParts[] = $rawPart;
         }
 
-        $rawData = implode('', $rawParts);
-
-        if ($rawData === '' || $rawData === '0') {
-            throw new \RuntimeException('Empty response from NNTP server');
-        }
+        $rawData = implode("\r\n", $rawParts);
 
         // Decode the NZB
         return $this->decodeNzb($rawData);
