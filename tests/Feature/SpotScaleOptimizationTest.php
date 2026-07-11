@@ -52,7 +52,7 @@ test('precache scans use an id keyset instead of offsets', function () {
     $nntpService = Mockery::mock(NntpService::class);
     $nntpService->shouldReceive('makeDriver')->once()->andReturn($driver);
     $nzbService = Mockery::mock(NzbDownloadService::class);
-    $nzbService->shouldReceive('cachePath')->times(4)->andReturn(__FILE__);
+    $nzbService->shouldReceive('isCached')->times(4)->andReturn(true);
     $this->app->instance(NntpService::class, $nntpService);
     $this->app->instance(NzbDownloadService::class, $nzbService);
 

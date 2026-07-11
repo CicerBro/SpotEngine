@@ -9,12 +9,14 @@ use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SingleNntpDriver;
 use App\Services\NzbDownloadService;
 use App\Services\SpotImageService;
+use Illuminate\Console\Attributes\Description;
+use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
 
-#[\Illuminate\Console\Attributes\Description('Pre-warm the NZB and image file caches by fetching from NNTP')]
-#[\Illuminate\Console\Attributes\Signature('spot:precache
+#[Description('Pre-warm the NZB and image file caches by fetching from NNTP')]
+#[Signature('spot:precache
                             {--type=both : What to pre-cache (nzb, images, both)}
                             {--batch=100 : Spots per batch}
                             {--limit= : Max spots to process}')]
@@ -110,7 +112,7 @@ class PrecacheSpots extends Command
 
                     $processed++;
 
-                    if (file_exists($nzbService->cachePath($spot))) {
+                    if ($nzbService->isCached($spot)) {
                         $skipped++;
 
                         continue;

@@ -11,7 +11,7 @@ use App\Services\SpotEnricher;
 use Illuminate\Support\Facades\File;
 
 beforeEach(function () {
-    $this->cacheDirectory = storage_path('framework/testing/nzb-download-'.bin2hex(random_bytes(4)));
+    $this->cacheDirectory = storage_path('framework/testing/nzb-download-' . bin2hex(random_bytes(4)));
     config()->set('spotengine.cache.nzb_path', $this->cacheDirectory);
 });
 
@@ -62,7 +62,8 @@ test('NZB download falls back to the configured alternate NNTP provider', functi
 
     $cached = File::get($service->cachePath($spot));
 
-    expect($cached)->toStartWith("\x1f\x8b")
+    expect($service->cachePath($spot))->toEndWith('.nzb.gz')
+        ->and($cached)->toStartWith("\x1f\x8b")
         ->and(gzdecode($cached))->toBe($nzb);
 });
 
@@ -108,15 +109,49 @@ test('legacy plain NZB cache entries are migrated to gzip', function () {
     $enricher = Mockery::mock(SpotEnricher::class);
     $enricher->shouldReceive('enrich')->once()->with($spot);
     $service = new NzbDownloadService($nntpService, $enricher);
-    File::ensureDirectoryExists(dirname($service->cachePath($spot)));
-    File::put($service->cachePath($spot), $nzb);
+    $legacyPath = nestedCachePath($this->cacheDirectory, md5('nzb.' . $spot->id), 'nzb');
+    File::ensureDirectoryExists(dirname($legacyPath));
+    File::put($legacyPath, $nzb);
 
     $plain = $service->fetchNzb($spot);
     $cached = File::get($service->cachePath($spot));
 
     expect($plain)->toBe($nzb)
+        ->and($service->cachePath($spot))->toEndWith('.nzb.gz')
+        ->and(File::exists($legacyPath))->toBeFalse()
         ->and($cached)->toStartWith("\x1f\x8b")
         ->and(gzdecode($cached))->toBe($nzb);
+});
+
+test('legacy gzipped NZB cache files are migrated to nzb.gz extension', function () {
+    $spot = new Spot([
+        'title' => 'Legacy gzipped NZB',
+        'nzb_segments' => ['segment@test'],
+    ]);
+    $spot->setAttribute('id', 457);
+    $nzb = '<?xml version="1.0"?><nzb><file subject="legacy-gzip"/></nzb>';
+    $gzipped = gzencode($nzb, 8);
+
+    if ($gzipped === false) {
+        throw new RuntimeException('Unable to create gzipped NZB test fixture.');
+    }
+
+    $nntpService = Mockery::mock(NntpService::class);
+    $nntpService->shouldNotReceive('makeDriver');
+    $nntpService->shouldNotReceive('getConfig');
+    $enricher = Mockery::mock(SpotEnricher::class);
+    $enricher->shouldReceive('enrich')->once()->with($spot);
+    $service = new NzbDownloadService($nntpService, $enricher);
+    $legacyPath = nestedCachePath($this->cacheDirectory, md5('nzb.' . $spot->id), 'nzb');
+    File::ensureDirectoryExists(dirname($legacyPath));
+    File::put($legacyPath, $gzipped);
+
+    $cached = $service->fetchGzippedNzb($spot);
+
+    expect($cached)->toBe($gzipped)
+        ->and($service->cachePath($spot))->toEndWith('.nzb.gz')
+        ->and(File::exists($legacyPath))->toBeFalse()
+        ->and(File::get($service->cachePath($spot)))->toBe($gzipped);
 });
 
 test('precache fetches return plain NZB content while storing gzip', function () {
@@ -143,6 +178,7 @@ test('precache fetches return plain NZB content while storing gzip', function ()
     $cached = File::get($service->cachePath($spot));
 
     expect($plain)->toBe($nzb)
+        ->and($service->cachePath($spot))->toEndWith('.nzb.gz')
         ->and($cached)->toStartWith("\x1f\x8b")
         ->and(gzdecode($cached))->toBe($nzb);
 });
