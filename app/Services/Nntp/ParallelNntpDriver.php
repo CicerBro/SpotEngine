@@ -14,6 +14,8 @@ use App\Services\Nntp\Contracts\NntpDriverInterface;
  */
 class ParallelNntpDriver implements NntpDriverInterface
 {
+    private const int MAX_XOVER_RETRIES = 2;
+
     /**
      * Headers consumed by SpotParser. All other headers are silently discarded
      * during HEAD parsing — this eliminates iconv calls for Subject and other
@@ -221,124 +223,26 @@ class ParallelNntpDriver implements NntpDriverInterface
      */
     public function xover(int $start, int $end): array
     {
-        if ($this->sockets === []) {
-            throw new NntpException('Not connected', operation: 'XOVER');
-        }
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                return $this->xoverAttempt($start, $end);
+            } catch (NntpException $exception) {
+                $isIncompleteResponse = str_contains($exception->getMessage(), 'incomplete XOVER response');
+                $canRetry = $exception->operation === 'XOVER'
+                    && ($exception->timedOut || $isIncompleteResponse)
+                    && $attempt < self::MAX_XOVER_RETRIES
+                    && $this->sockets !== [];
 
-        $numSockets = \count($this->sockets);
-        $total = $end - $start + 1;
-        $sliceSize = (int) ceil($total / $numSockets);
-
-        foreach ($this->sockets as $socket) {
-            stream_set_blocking($socket, false);
-        }
-
-        // Assign slices and send all XOVER commands simultaneously.
-        $slices = [];
-        $pos = $start;
-
-        foreach ($this->sockets as $idx => $socket) {
-            if ($pos > $end) {
-                break;
-            }
-
-            $sliceEnd = min($pos + $sliceSize - 1, $end);
-            $this->sendCommand($socket, "XOVER $pos-$sliceEnd");
-            $slices[$idx] = true;
-            $pos = $sliceEnd + 1;
-        }
-
-        // Read all responses in parallel.
-        $results = [];
-        $buffers = array_fill_keys(array_keys($slices), '');
-        $states = array_fill_keys(array_keys($slices), 'wait_response');
-        $active = array_keys($slices);
-
-        $socketIdToIdx = [];
-
-        foreach ($this->sockets as $idx => $socket) {
-            $socketIdToIdx[(int) $socket] = $idx;
-        }
-
-        $deadline = microtime(true) + $this->timeout;
-
-        while ($active !== [] && microtime(true) < $deadline) {
-            $readSet = array_values(array_intersect_key($this->sockets, array_flip($active)));
-            $write = null;
-            $except = null;
-
-            if (@stream_select($readSet, $write, $except, 1, 0) <= 0) {
-                continue;
-            }
-
-            foreach ($readSet as $socket) {
-                $idx = $socketIdToIdx[(int) $socket];
-                $data = @fread($socket, $this->readBufferSize);
-
-                if ($data === false || ($data === '' && feof($socket))) {
-                    throw new NntpException('NNTP connection closed during incomplete XOVER response', operation: 'XOVER');
+                if (! $canRetry) {
+                    throw $exception;
                 }
 
-                if ($data === '') {
-                    continue;
-                }
-
-                $buffers[$idx] .= $data;
-
-                while (true) {
-                    $newlinePos = strpos($buffers[$idx], "\n");
-
-                    if ($newlinePos === false) {
-                        break;
-                    }
-
-                    $line = rtrim(substr($buffers[$idx], 0, $newlinePos), "\r");
-                    $buffers[$idx] = substr($buffers[$idx], $newlinePos + 1);
-
-                    if ($states[$idx] === 'wait_response') {
-                        if (str_starts_with($line, '224')) {
-                            $states[$idx] = 'reading';
-                        } else {
-                            throw new NntpException("XOVER failed: {$line}", statusText: $line, operation: 'XOVER');
-                        }
-
-                        break;
-                    }
-
-                    if ($line === '.') {
-                        $active = array_values(array_diff($active, [$idx]));
-                        break;
-                    }
-
-                    // XOVER format: num\tsubject\tfrom\tdate\tmessage-id\treferences\tbytes\tlines
-                    $parts = explode("\t", $line);
-
-                    if (\count($parts) >= 5) {
-                        $articleNum = (int) $parts[0];
-                        $results[$articleNum] = [
-                            'subject' => $parts[1],
-                            'from' => $parts[2],
-                            'date' => $parts[3],
-                            'message_id' => trim($parts[4], '<>'),
-                        ];
-                    }
-                }
+                $retry = $attempt + 1;
+                echo "  XOVER {$start}-{$end} was interrupted; retrying batch {$retry}/" . self::MAX_XOVER_RETRIES
+                    . ' with ' . \count($this->sockets) . " connection(s)...\n";
+                flush();
             }
         }
-
-        foreach ($this->sockets as $socket) {
-            stream_set_blocking($socket, true);
-        }
-
-        if ($active !== []) {
-            throw new NntpException(
-                'Timed out waiting for incomplete XOVER response on ' . \count($active) . ' connections',
-                operation: 'XOVER',
-                timedOut: true,
-            );
-        }
-
-        return $results;
     }
 
     /**
@@ -578,6 +482,175 @@ class ParallelNntpDriver implements NntpDriverInterface
     public function getConnectionCount(): int
     {
         return \count($this->sockets);
+    }
+
+    /**
+     * Fetch one XOVER attempt. Incomplete sockets are discarded before throwing
+     * so a subsequent attempt cannot consume the remainder of an earlier response.
+     *
+     * @return array<int, array{subject: string, from: string, date: string, message_id: string}>
+     */
+    private function xoverAttempt(int $start, int $end): array
+    {
+        if ($this->sockets === []) {
+            throw new NntpException('Not connected', operation: 'XOVER');
+        }
+
+        $numSockets = \count($this->sockets);
+        $total = $end - $start + 1;
+        $sliceSize = (int) ceil($total / $numSockets);
+
+        foreach ($this->sockets as $socket) {
+            stream_set_blocking($socket, false);
+        }
+
+        // Assign slices and send all XOVER commands simultaneously.
+        $slices = [];
+        $pos = $start;
+
+        foreach ($this->sockets as $idx => $socket) {
+            if ($pos > $end) {
+                break;
+            }
+
+            $sliceEnd = min($pos + $sliceSize - 1, $end);
+            $this->sendCommand($socket, "XOVER $pos-$sliceEnd");
+            $slices[$idx] = true;
+            $pos = $sliceEnd + 1;
+        }
+
+        // Read all responses in parallel.
+        $results = [];
+        $buffers = array_fill_keys(array_keys($slices), '');
+        $states = array_fill_keys(array_keys($slices), 'wait_response');
+        $active = array_keys($slices);
+
+        $socketIdToIdx = [];
+
+        foreach ($this->sockets as $idx => $socket) {
+            $socketIdToIdx[(int) $socket] = $idx;
+        }
+
+        $deadline = microtime(true) + $this->timeout;
+
+        while ($active !== [] && microtime(true) < $deadline) {
+            $readSet = array_values(array_intersect_key($this->sockets, array_flip($active)));
+            $write = null;
+            $except = null;
+
+            if (@stream_select($readSet, $write, $except, 1, 0) <= 0) {
+                continue;
+            }
+
+            foreach ($readSet as $socket) {
+                $idx = $socketIdToIdx[(int) $socket];
+                $data = @fread($socket, $this->readBufferSize);
+
+                if ($data === false || ($data === '' && feof($socket))) {
+                    $failedConnections = \count($active);
+                    $this->dropIncompleteXoverSockets($active);
+
+                    throw new NntpException(
+                        "NNTP connection closed during incomplete XOVER response on {$failedConnections} connections",
+                        operation: 'XOVER',
+                    );
+                }
+
+                if ($data === '') {
+                    continue;
+                }
+
+                $buffers[$idx] .= $data;
+
+                while (true) {
+                    $newlinePos = strpos($buffers[$idx], "\n");
+
+                    if ($newlinePos === false) {
+                        break;
+                    }
+
+                    $line = rtrim(substr($buffers[$idx], 0, $newlinePos), "\r");
+                    $buffers[$idx] = substr($buffers[$idx], $newlinePos + 1);
+
+                    if ($states[$idx] === 'wait_response') {
+                        if (str_starts_with($line, '224')) {
+                            $states[$idx] = 'reading';
+                        } else {
+                            throw new NntpException("XOVER failed: {$line}", statusText: $line, operation: 'XOVER');
+                        }
+
+                        break;
+                    }
+
+                    if ($line === '.') {
+                        $active = array_values(array_diff($active, [$idx]));
+                        break;
+                    }
+
+                    // XOVER format: num\tsubject\tfrom\tdate\tmessage-id\treferences\tbytes\tlines
+                    $parts = explode("\t", $line);
+
+                    if (\count($parts) >= 5) {
+                        $articleNum = (int) $parts[0];
+                        $results[$articleNum] = [
+                            'subject' => $parts[1],
+                            'from' => $parts[2],
+                            'date' => $parts[3],
+                            'message_id' => trim($parts[4], '<>'),
+                        ];
+                    }
+                }
+            }
+        }
+
+        if ($active !== []) {
+            $failedConnections = \count($active);
+            $this->dropIncompleteXoverSockets($active);
+
+            throw new NntpException(
+                "Timed out waiting for incomplete XOVER response on {$failedConnections} connections",
+                operation: 'XOVER',
+                timedOut: true,
+            );
+        }
+
+        foreach ($this->sockets as $socket) {
+            stream_set_blocking($socket, true);
+        }
+
+        return $results;
+    }
+
+    /**
+     * Drop sockets whose response did not finish. Completed sockets remain usable;
+     * if every socket failed, establish one clean connection for the retry.
+     *
+     * @param  list<int>  $socketIndexes
+     */
+    private function dropIncompleteXoverSockets(array $socketIndexes): void
+    {
+        foreach ($socketIndexes as $idx) {
+            if (! isset($this->sockets[$idx])) {
+                continue;
+            }
+
+            @fclose($this->sockets[$idx]);
+            unset($this->sockets[$idx]);
+        }
+
+        $this->sockets = array_values($this->sockets);
+
+        if ($this->sockets === []) {
+            $replacement = $this->reconnectOne();
+
+            if ($replacement !== null) {
+                $this->sockets[] = $replacement;
+            }
+        }
+
+        foreach ($this->sockets as $socket) {
+            stream_set_blocking($socket, true);
+        }
     }
 
     /**
