@@ -180,12 +180,14 @@ SpotEngine exposes a Newznab-compatible API at `/api`. Supported operations:
 
 - `t=caps`: server capabilities
 - `t=search`: general search
-- `t=tvsearch`: TV search with `season` and `ep` parameters (builds `S01E02` + `Season 1 Episode 2` variants)
-- `t=movie`: movie search
+- `t=tvsearch`: TV search with `season`, `ep`, `rid`, and `tvmazeid`
+- `t=movie`: movie search with `q` and `imdbid`
 - `t=details`: spot details
 - `t=get`: download NZB
 
-Authenticate with `?apikey=YOUR_KEY`. API keys are shown on your profile page.
+Search responses honor arbitrary `offset` values and limits up to 100. External IDs are matched against the source metadata fields that contain IMDb, TVmaze, or TVRage URLs/tokens. Authenticate with `?apikey=YOUR_KEY`; API keys are shown on the profile page. Requests are limited to 60 per minute per user or guest IP by default.
+
+Downloaded spots are recorded in `user_downloads`. Saved filters, excluded-subcategory filtering, and watchlists are intentionally not exposed in the UI until complete product behavior exists; the existing tables remain in place for migration compatibility.
 
 ## Testing
 

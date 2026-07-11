@@ -1,5 +1,5 @@
 @php
-$hasFilters = request()->hasAny(['cat', 'subcat', 'exc_subcat', 'q']);
+$hasFilters = request()->hasAny(['cat', 'subcat', 'q']);
 $compact = $compact ?? false;
 @endphp
 
@@ -49,21 +49,5 @@ $compact = $compact ?? false;
             </a>
         @endforeach
 
-        @foreach((array) request('exc_subcat', []) as $excCode)
-            @php
-                $excName = ($categoriesByCode ?? collect())->get($excCode)?->name ?? $excCode;
-                $remaining = array_filter((array) request('exc_subcat', []), fn ($c) => $c !== $excCode);
-                $removeUrl = $remaining
-                    ? request()->fullUrlWithQuery(['exc_subcat' => array_values($remaining)])
-                    : request()->fullUrlWithoutQuery('exc_subcat');
-            @endphp
-            <a href="{{ $removeUrl }}"
-               class="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-100 px-2 py-0.5 text-xs text-red-700 line-through hover:bg-red-200 transition-colors">
-                {{ $excName }}
-                <svg class="h-3 w-3 no-underline" style="text-decoration: none" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
-                </svg>
-            </a>
-        @endforeach
     </div>
 @endif

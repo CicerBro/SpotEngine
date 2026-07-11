@@ -12,21 +12,12 @@ $rowBgClass = $rootCategory?->rowBackgroundClass() ?? 'hover:bg-gray-100/60';
         @include('partials.category-badge', ['category' => $badgeCategory ?? $spot->category, 'rootCategory' => $rootCategory])
     </td>
     <td class="px-3 py-1.5 max-w-0 w-full" @mouseleave="$store.spotPreview.hide()">
-        <div class="flex items-center gap-2">
-            <a href="{{ route('spots.show', $spot) }}"
-               class="truncate text-gray-900 hover:text-blue-600 font-medium transition-colors leading-snug focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 rounded"
-               @mouseenter="$store.spotPreview.show('{{ route('spots.image', $spot) }}', $event.clientX, $event.clientY)"
-               @mousemove="$store.spotPreview.move($event.clientX, $event.clientY)">
-                {{ $spot->title }}
-            </a>
-            <button type="button"
-                    class="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-amber-400 transition-all shrink-0 focus:outline-none focus:opacity-100"
-                    title="Add to watchlist">
-                <svg class="h-[14px] w-[14px]" viewBox="0 0 16 16" fill="currentColor">
-                    <path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25Z"/>
-                </svg>
-            </button>
-        </div>
+        <a href="{{ route('spots.show', $spot) }}"
+           class="block truncate rounded font-medium leading-snug text-gray-900 transition-colors hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1"
+           @mouseenter="$store.spotPreview.show('{{ route('spots.image', $spot) }}', $event.clientX, $event.clientY)"
+           @mousemove="$store.spotPreview.move($event.clientX, $event.clientY)">
+            {{ $spot->title }}
+        </a>
     </td>
     <td class="px-3 py-1.5 text-xs text-gray-400 truncate max-w-28">
         {{ $genreLabel ?? '—' }}
