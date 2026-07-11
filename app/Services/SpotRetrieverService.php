@@ -28,6 +28,7 @@ class SpotRetrieverService
         private readonly SpotParser $parser,
         private readonly NntpService $nntpService,
         private readonly SigningService $signer,
+        private readonly SpotMutationService $spotMutations,
     ) {}
 
     /**
@@ -112,16 +113,17 @@ class SpotRetrieverService
         $forwardNewToOld = config('spotengine.retrieval.forward_new_to_old', false);
         $batches = $this->buildBatches($startArticle, $endArticle, $batchSize, $backfill, $forwardNewToOld);
 
-        $saveStateOnlyAfterLastBatch = false;
+        $saveStateOnlyAfterLastBatch = ! $backfill && $forwardNewToOld;
 
-        [
-            'totalProcessed' => $totalProcessed,
-            'totalInserted' => $totalInserted,
-            'highestArticle' => $highestArticle,
-        ] = $this->runBatches($batches, $backfill, $groupInfo, $state, $startArticle, $onBatchComplete, $saveStateOnlyAfterLastBatch);
-
-        $this->nntp->quit();
-        $this->nntp = null;
+        try {
+            [
+                'totalProcessed' => $totalProcessed,
+                'totalInserted' => $totalInserted,
+                'highestArticle' => $highestArticle,
+            ] = $this->runBatches($batches, $backfill, $groupInfo, $state, $startArticle, $onBatchComplete, $saveStateOnlyAfterLastBatch);
+        } finally {
+            $this->closeNntpConnection();
+        }
 
         log_debug('Retrieval complete', ['totalProcessed' => $totalProcessed, 'totalInserted' => $totalInserted, 'lastArticle' => $highestArticle, 'backfill' => $backfill]);
 
@@ -290,6 +292,7 @@ class SpotRetrieverService
                     'description' => $xmlData['description'] ?? null,
                     'nzb_segments' => $xmlData['nzb_segments'] ?? [],
                     'image_segment' => $xmlData['image_segment'] ?? null,
+                    'image_segments' => $xmlData['image_segments'] ?? [],
                     'website' => $xmlData['website'] ?? null,
                     'xml_signature' => $xmlData['xml_signature'] ?? null,
                     'poster_key_id' => $xmlData['poster_key_id'] ?? null,
@@ -308,7 +311,7 @@ class SpotRetrieverService
      * - The referenced spot exists in the database.
      * - The command is issued within 5 days (432 000 s) of the original posting.
      *
-     * @param  list<array{_moderation: true, command: string, target_message_id: string, poster: string, stamp: int}>  $commands
+     * @param  list<array{_moderation: true, command: string, target_message_id: string, poster: string, stamp: int, is_global_moderator: bool, moderator_key_id: string|null}>  $commands
      */
     protected function processModeration(array $commands): void
     {
@@ -330,6 +333,24 @@ class SpotRetrieverService
 
             if (! ($spot instanceof Spot)) {
                 Log::info('NUKE: target not in database', [
+                    'command' => $cmd['command'],
+                    'target_message_id' => $targetId,
+                    'moderator' => $cmd['poster'],
+                ]);
+
+                continue;
+            }
+
+            $isAuthorized = $cmd['is_global_moderator']
+                || (
+                    $cmd['moderator_key_id'] !== null
+                    && $cmd['moderator_key_id'] !== ''
+                    && $spot->is_verified
+                    && hash_equals((string) $spot->poster_key_id, $cmd['moderator_key_id'])
+                );
+
+            if (! $isAuthorized) {
+                Log::warning('NUKE: authenticated personal dispose does not match spot owner — ignored', [
                     'command' => $cmd['command'],
                     'target_message_id' => $targetId,
                     'moderator' => $cmd['poster'],
@@ -362,7 +383,7 @@ class SpotRetrieverService
         }
 
         if ($deleteIds !== []) {
-            Spot::query()->whereIn('id', $deleteIds)->delete();
+            $this->spotMutations->delete($deleteIds);
         }
     }
 
@@ -440,6 +461,7 @@ class SpotRetrieverService
             $rows[] = array_merge($spot, [
                 'subcategories' => json_encode($spot['subcategories'] ?? []) ?: '[]',
                 'nzb_segments' => json_encode($spot['nzb_segments'] ?? []) ?: '[]',
+                'image_segments' => json_encode($spot['image_segments'] ?? []) ?: '[]',
                 'created_at' => $timestamp,
                 'updated_at' => $timestamp,
             ]);
@@ -450,9 +472,9 @@ class SpotRetrieverService
         // In normal mode the full set (including X-XML) is updated on conflict.
         $updateColumns = $this->initialScan
             ? ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'updated_at']
-            : ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'description', 'nzb_segments', 'image_segment', 'website', 'xml_signature', 'poster_key_id', 'is_verified', 'updated_at'];
+            : ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'description', 'nzb_segments', 'image_segment', 'image_segments', 'website', 'xml_signature', 'poster_key_id', 'is_verified', 'updated_at'];
 
-        return Spot::upsert($rows, ['message_id'], $updateColumns);
+        return $this->spotMutations->upsert($rows, ['message_id'], $updateColumns);
     }
 
     public function shutdown(): void
@@ -460,11 +482,20 @@ class SpotRetrieverService
         $this->shuttingDown = true;
 
         try {
-            $this->nntp?->quit();
+            $this->closeNntpConnection();
         } catch (\Throwable) {
             // Ignore shutdown errors
         }
+    }
 
+    private function closeNntpConnection(): void
+    {
+        if (! $this->nntp instanceof NntpDriverInterface) {
+            return;
+        }
+
+        $nntp = $this->nntp;
         $this->nntp = null;
+        $nntp->quit();
     }
 }

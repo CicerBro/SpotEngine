@@ -8,15 +8,19 @@ use App\Enums\RootCategory;
 use App\Models\Spot;
 use App\Models\UsenetState;
 use App\Models\User;
+use App\Services\SpotMutationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
 use Illuminate\View\View;
 
 class AdminController extends Controller
 {
+    public function __construct(private readonly SpotMutationService $spotMutations) {}
+
     public function index(): View
     {
-        /** @var \Illuminate\Support\Collection<int, object{category_code: string, count: int|string, latest: string}> $categoryRows */
+        /** @var Collection<int, object{category_code: string, count: int|string, latest: string}> $categoryRows */
         $categoryRows = Spot::query()
             ->toBase()
             ->selectRaw('category_code, COUNT(*) as count, MAX(spot_posted_at) as latest')
@@ -102,7 +106,7 @@ class AdminController extends Controller
     public function cleanOldSpots(Request $request): RedirectResponse
     {
         $days = max(1, (int) $request->input('days', 30));
-        $deleted = Spot::query()->where('spot_posted_at', '<', now()->subDays($days))->delete();
+        $deleted = $this->spotMutations->deleteOlderThan(now()->subDays($days));
 
         return redirect()->route('admin.index')->with('success', "Deleted {$deleted} spots older than {$days} days.");
     }
