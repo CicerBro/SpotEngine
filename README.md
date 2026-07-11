@@ -13,7 +13,7 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 - **PostgreSQL**: JSONB with GIN indexes for subcategory filtering, `tsvector`/`tsquery` full-text search with a single GIN index across title and description, and a descending index on `spot_posted_at` for fast listing queries
 - **Newznab-compatible API**: Can be used with tools like Sonarr, Radarr, and similar automation software.
 - **Extensible search**: `SearchDriver` contract with a `DatabaseSearchDriver` (uses PostgreSQL FTS) and a `ManticoreSearchDriver` stub. Currently Manticore is a work in progress. For very busy applications with a lot of API traffic, Manticore is the preferred driver.
-- **Layered caching**: database cache by default, optional Redis for shared cache/locks, and disk-backed NZB/image caches with configurable pruning.
+- **Layered caching**: Redis/Valkey cache and sessions by default, plus disk-backed NZB/image caches with configurable pruning.
 - **Parallel NNTP**: Concurrent NNTP connections for fast header retrieval. Initial full scan can be done in under 5 minutes on an Apple M1 Pro.
 - **Two-phase spot retrieval**: Initial scan uses XOVER for fast bulk indexing so the app is usable right away. Enrichment fills in the rest via HEAD requests in the background. See [Spot Retrieval](#spot-retrieval) for details.
 
@@ -21,7 +21,7 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 
 - PHP 8.5+
 - PostgreSQL 16+ (PostgreSQL 18 is used by Docker and CI and is the recommended database)
-- Redis 7+ (optional; recommended for multi-server deployments)
+- A Redis-compatible server (Redis 7+ or Valkey)
 - [Bun](https://bun.sh)
 
 ## Setup
@@ -36,7 +36,7 @@ This installs dependencies, generates an application key, runs migrations, and b
 
 ## Docker
 
-Use Docker Compose with FrankenPHP/PostgreSQL/Redis:
+Use Docker Compose with FrankenPHP/PostgreSQL/Valkey:
 
 - See [DOCKER.md](DOCKER.md)
 
@@ -46,7 +46,7 @@ Docker images in this repository are pinned to FrankenPHP PHP 8.5 variants.
 
 ### How to get started
 
-1. **Configure `.env`**: Copy `.env.example` to `.env` and fill in your database and NNTP settings; configure Redis only if you intend to use it (see [Configuration](#configuration)).
+1. **Configure `.env`**: Copy `.env.example` to `.env` and fill in your database, Redis/Valkey, and NNTP settings (see [Configuration](#configuration)).
 2. **Install PHP dependencies**:
     ```bash
     composer install
@@ -88,7 +88,7 @@ That runs the same stack (queue, Pail, Vite) but serves the app via `php artisan
 **When using Octane:**
 
 - Keep sessions in `database` or `redis` (not `file`).
-- Optionally set `CACHE_STORE=octane` in `.env` for in-memory cache; otherwise your existing cache driver is fine. Octane as a cache store does not work with FrankenPHP, only Swoole or OpenSwoole. By default this project uses FrankenPHP.
+- Redis remains the default cache store. Optionally set `CACHE_STORE=octane` in `.env` for in-memory cache. Octane as a cache store does not work with FrankenPHP, only Swoole or OpenSwoole. By default this project uses FrankenPHP.
 - Optional env: `OCTANE_SERVER` (default `frankenphp`), `OCTANE_HTTPS` for generated URLs.
 
 ## Configuration
@@ -99,8 +99,10 @@ Copy `.env.example` to `.env` and fill in:
 | ------------------------------------ | ---------------------------------------------------------------- |
 | `APP_KEY`                            | Required Laravel encryption key                                  |
 | `DB_*`                               | PostgreSQL connection                                            |
-| `CACHE_STORE`                        | `database` by default; use `redis` for shared cache and locks    |
-| `REDIS_*`                            | Optional Redis connection (`REDIS_CACHE_DB` defaults to `1`)     |
+| `CACHE_STORE`                        | `redis` by default for shared cache and locks                    |
+| `SESSION_DRIVER`                     | `redis` by default                                               |
+| `QUEUE_CONNECTION`                   | `database` by default                                            |
+| `REDIS_*`                            | Redis/Valkey connection (`REDIS_CACHE_DB` defaults to `1`)       |
 | `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server                                                    |
 | `NNTP_USERNAME`, `NNTP_PASSWORD`     | Usenet credentials                                               |
 | `NNTP_CONNECTIONS`                   | Parallel connection count (default `20`)                         |
