@@ -99,23 +99,23 @@ That runs the same stack (queue, Pail, Vite) but serves the app via `php artisan
 
 Copy `.env.example` to `.env` and fill in:
 
-| Variable                             | Description                                                      |
-| ------------------------------------ | ---------------------------------------------------------------- |
-| `APP_KEY`                            | Required Laravel encryption key                                  |
-| `DB_*`                               | PostgreSQL connection                                            |
-| `REDIS_*`                            | Redis connection (`REDIS_CACHE_DB` defaults to `1`)              |
-| `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server; defaults are TLS on port `563`                    |
-| `NNTP_TLS_VERIFY`                    | Verify the NNTP server certificate (default `true`)              |
-| `NNTP_USERNAME`, `NNTP_PASSWORD`     | Usenet credentials                                               |
-| `NNTP_CONNECTIONS`                   | Parallel connection count (default `20`)                         |
-| `SEARCH_DRIVER`                      | `database` (default) or `manticore`                              |
-| `CACHE_NZB_RETENTION_DAYS`           | Days to keep cached NZB files before pruning (default `30`)      |
-| `CACHE_IMAGE_RETENTION_DAYS`         | Days to keep cached images before pruning (default `30`)         |
-| `REGISTRATION_OPEN`                  | Allow new user registrations (default `false`)                   |
-| **Optional (Octane)**                |                                                                  |
-| `OCTANE_SERVER`                      | Octane server: `frankenphp` (default), `roadrunner`, `swoole`    |
-| `OCTANE_HTTPS`                       | Set to `true` when serving over HTTPS so URLs use `https://`     |
-| `CACHE_STORE`                        | Set to `octane` when using Octane for in-memory cache (optional) |
+| Variable                             | Description                                                                                                                              |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_KEY`                            | Required Laravel encryption key                                                                                                          |
+| `DB_*`                               | PostgreSQL connection                                                                                                                    |
+| `REDIS_*`                            | Redis connection (`REDIS_CACHE_DB` defaults to `1`)                                                                                      |
+| `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server; defaults are TLS on port `563`                                                                                            |
+| `NNTP_TLS_VERIFY`                    | Verify the NNTP server certificate (default `true`)                                                                                      |
+| `NNTP_USERNAME`, `NNTP_PASSWORD`     | Usenet credentials                                                                                                                       |
+| `NNTP_CONNECTIONS`                   | Parallel connection count (default `20`)                                                                                                 |
+| `SEARCH_DRIVER`                      | `database` (default) or `manticore`                                                                                                      |
+| `CACHE_NZB_RETENTION_DAYS`           | Days to keep cached NZB files before pruning (default `30`)                                                                              |
+| `CACHE_IMAGE_RETENTION_DAYS`         | Days to keep cached images before pruning (default `30`)                                                                                 |
+| `REGISTRATION_OPEN`                  | Allow new user registrations (default `false`)                                                                                           |
+| **Optional (Octane)**                |                                                                                                                                          |
+| `OCTANE_SERVER`                      | Octane server: `frankenphp` (default), `roadrunner`, `swoole`                                                                            |
+| `OCTANE_HTTPS`                       | Set to `true` when serving over HTTPS so URLs use `https://`                                                                             |
+| `CACHE_STORE`                        | Set to `octane` when using Octane for in-memory cache (optional, requires Swoole)[https://laravel.com/docs/13.x/octane#the-octane-cache] |
 
 ## Spot Retrieval
 
