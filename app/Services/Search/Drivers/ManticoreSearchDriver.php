@@ -247,7 +247,7 @@ class ManticoreSearchDriver implements SearchDriver
         );
         $total = $response[0]['data'][0]['document_count'] ?? null;
 
-        if (! \is_int($total) && (!\is_string($total) || !ctype_digit($total))) {
+        if (! \is_int($total) && (! \is_string($total) || ! ctype_digit($total))) {
             throw new ManticoreSearchException('Manticore returned an invalid document count.');
         }
 
@@ -445,7 +445,7 @@ class ManticoreSearchDriver implements SearchDriver
         foreach ($hits as $hit) {
             $id = \is_array($hit) ? ($hit['_id'] ?? null) : null;
 
-            if (! \is_int($id) && (!\is_string($id) || !ctype_digit($id))) {
+            if (! \is_int($id) && (! \is_string($id) || ! ctype_digit($id))) {
                 throw new ManticoreSearchException('Manticore returned a hit with an invalid document ID.');
             }
 
