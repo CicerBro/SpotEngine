@@ -22,6 +22,7 @@ test('API caps returns XML without API key', function () {
     $response->assertHeader('Content-Type', 'text/xml; charset=utf-8');
     $response->assertSee('SpotEngine');
     $response->assertSee('searching');
+    $response->assertSee('categories');
 });
 
 test('API search requires API key', function () {
