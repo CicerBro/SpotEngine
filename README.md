@@ -20,9 +20,9 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 ## Requirements
 
 - PHP 8.5+
-- PostgreSQL 16+ (PostgreSQL 18 is used by Docker and CI and is the recommended database)
-- A Redis-compatible server (Redis 7+ or Valkey)
-- [Bun](https://bun.sh)
+- [PostgreSQL](https://www.postgresql.org/) 16+ (PostgreSQL 18 is used by Docker and CI and is the recommended database)
+- A Redis-compatible server [Valkey](https://valkey.io/) or Redis)
+- [Bun](https://bun.sh) for front-end tooling
 
 ## Setup
 
