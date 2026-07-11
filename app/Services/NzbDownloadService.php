@@ -12,6 +12,10 @@ use Symfony\Component\HttpKernel\Exception\HttpException;
 
 class NzbDownloadService
 {
+    private const int GZIP_LEVEL = 8;
+
+    private const string GZIP_MAGIC = "\x1f\x8b";
+
     public function __construct(
         private readonly NntpService $nntpService,
         private readonly SpotEnricher $enricher,
@@ -31,14 +35,31 @@ class NzbDownloadService
 
         abort_if(empty($spot->nzb_segments), 404, 'No NZB data available.');
 
+        return $this->decodeGzippedNzb($this->fetchGzippedNzbForSpot($spot));
+    }
+
+    /**
+     * Fetch the gzipped NZB content for a spot.
+     *
+     * @throws HttpException
+     */
+    public function fetchGzippedNzb(Spot $spot): string
+    {
+        $this->enricher->enrich($spot);
+
+        abort_if(empty($spot->nzb_segments), 404, 'No NZB data available.');
+
+        return $this->fetchGzippedNzbForSpot($spot);
+    }
+
+    private function fetchGzippedNzbForSpot(Spot $spot): string
+    {
         $cachePath = $this->cachePath($spot);
 
-        if (file_exists($cachePath)) {
-            $nzb = file_get_contents($cachePath);
+        $cached = $this->readGzippedCache($cachePath);
 
-            if ($nzb !== false) {
-                return $nzb;
-            }
+        if ($cached !== null) {
+            return $cached;
         }
 
         $config = $this->nntpService->getConfig();
@@ -50,9 +71,10 @@ class NzbDownloadService
             $nzb = $this->fetchFromAlternateProvider($spot, $config, $primaryException);
         }
 
-        $this->writeToCache($cachePath, $nzb);
+        $gzippedNzb = $this->encodeNzb($nzb);
+        $this->writeToCache($cachePath, $gzippedNzb);
 
-        return $nzb;
+        return $gzippedNzb;
     }
 
     /**
@@ -62,12 +84,10 @@ class NzbDownloadService
     {
         $cachePath = $this->cachePath($spot);
 
-        if (file_exists($cachePath)) {
-            $nzb = file_get_contents($cachePath);
+        $cached = $this->readGzippedCache($cachePath);
 
-            if ($nzb !== false) {
-                return $nzb;
-            }
+        if ($cached !== null) {
+            return $this->decodeGzippedNzb($cached);
         }
 
         $config = $this->nntpService->getConfig();
@@ -78,7 +98,7 @@ class NzbDownloadService
             $nzb = $this->fetchFromAlternateProvider($spot, $config, $primaryException);
         }
 
-        $this->writeToCache($cachePath, $nzb);
+        $this->writeToCache($cachePath, $this->encodeNzb($nzb));
 
         return $nzb;
     }
@@ -140,6 +160,55 @@ class NzbDownloadService
         }
 
         return $this->fetchWithConnectedDriver($spot, $alternate, $config);
+    }
+
+    private function readGzippedCache(string $cachePath): ?string
+    {
+        if (! file_exists($cachePath)) {
+            return null;
+        }
+
+        $cached = file_get_contents($cachePath);
+
+        if ($cached === false) {
+            return null;
+        }
+
+        if ($this->isGzipped($cached)) {
+            return $cached;
+        }
+
+        $gzipped = $this->encodeNzb($cached);
+        $this->writeToCache($cachePath, $gzipped);
+
+        return $gzipped;
+    }
+
+    private function encodeNzb(string $nzb): string
+    {
+        $gzipped = gzencode($nzb, self::GZIP_LEVEL);
+
+        if ($gzipped === false) {
+            throw new \RuntimeException('Unable to gzip NZB cache payload.');
+        }
+
+        return $gzipped;
+    }
+
+    private function decodeGzippedNzb(string $gzippedNzb): string
+    {
+        $nzb = gzdecode($gzippedNzb);
+
+        if ($nzb === false) {
+            throw new \RuntimeException('Unable to decode gzipped NZB cache payload.');
+        }
+
+        return $nzb;
+    }
+
+    private function isGzipped(string $data): bool
+    {
+        return str_starts_with($data, self::GZIP_MAGIC);
     }
 
     private function writeToCache(string $cachePath, string $data): void

@@ -11,6 +11,7 @@ use App\Services\NzbDownloadService;
 use App\Services\Search\Contracts\SearchDriver;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Symfony\Component\HttpFoundation\AcceptHeader;
 
 /**
  * Newznab-compatible API for Sonarr, Radarr, and similar automation tools.
@@ -203,18 +204,28 @@ class ApiController extends Controller
     private function getNzb(Request $request, User $user): Response
     {
         $spot = Spot::findOrFail((int) $request->input('id'));
-        $nzb = $this->nzbService->fetchNzb($spot);
+        $serveGzipped = $this->requestAcceptsGzip($request);
+        $nzb = $serveGzipped
+            ? $this->nzbService->fetchGzippedNzb($spot)
+            : $this->nzbService->fetchNzb($spot);
         $user->downloads()->updateOrCreate(
             ['spot_id' => $spot->id],
             ['downloaded_at' => now()],
         );
 
-        return response($nzb, 200, [
+        $headers = [
             'Content-Type' => 'application/x-nzb',
             'Content-Disposition' => 'attachment; filename="'.$this->nzbService->filename($spot).'"',
             'X-DNZB-Name' => $spot->title,
             'Cache-Control' => 'public, max-age=86400',
-        ]);
+            'Vary' => 'Accept-Encoding',
+        ];
+
+        if ($serveGzipped) {
+            $headers['Content-Encoding'] = 'gzip';
+        }
+
+        return response($nzb, 200, $headers);
     }
 
     /**
@@ -348,6 +359,13 @@ class ApiController extends Controller
         $xml = '<?xml version="1.0" encoding="UTF-8"?>'."\n".'<error code="'.$code.'" description="'.e($message).'"/>';
 
         return response($xml, 400, ['Content-Type' => 'text/xml; charset=utf-8']);
+    }
+
+    private function requestAcceptsGzip(Request $request): bool
+    {
+        $gzip = AcceptHeader::fromString($request->headers->get('Accept-Encoding'))->get('gzip');
+
+        return $gzip !== null && $gzip->getQuality() > 0.0;
     }
 
     private function requireUser(): User
