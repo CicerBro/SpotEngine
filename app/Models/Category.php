@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Database\Factories\CategoryFactory;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
+use Illuminate\Database\Eloquent\Attributes\WithoutTimestamps;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -23,7 +26,7 @@ use Illuminate\Support\Facades\Cache;
  * @property-read Category|null $parent
  * @property-read Collection<int, Category> $children
  */
-#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+#[Fillable([
     'code',
     'parent_code',
     'name',
@@ -31,10 +34,10 @@ use Illuminate\Support\Facades\Cache;
     'type',
     'sort_order',
 ])]
-#[\Illuminate\Database\Eloquent\Attributes\WithoutTimestamps]
+#[WithoutTimestamps]
 class Category extends Model
 {
-    /** @use HasFactory<\Database\Factories\CategoryFactory> */
+    /** @use HasFactory<CategoryFactory> */
     use HasFactory;
 
     #[\Override]
@@ -127,7 +130,15 @@ class Category extends Model
      */
     public function displayLabel(): string
     {
-        return self::SLUG_LABELS[$this->slug] ?? $this->name ?? $this->slug ?? '?';
+        if (isset(self::SLUG_LABELS[$this->slug])) {
+            return self::SLUG_LABELS[$this->slug];
+        }
+
+        if (isset(self::NAME_LABELS[$this->name])) {
+            return self::NAME_LABELS[$this->name];
+        }
+
+        return $this->name ?? $this->slug ?? '?';
     }
 
     public static function clearCache(): void
@@ -165,6 +176,7 @@ class Category extends Model
         'ogg' => 'OGG',
         'windows' => 'Win',
         'windows-app' => 'Win',
+        'windows-1' => 'Win',
         'mac' => 'Mac',
         'mac-app' => 'Mac',
         'linux' => 'Linux',
@@ -178,14 +190,26 @@ class Category extends Model
         'xbox' => 'Xbox',
         'xbox360' => 'X360',
         'xboxone' => 'XB1',
-        'winphone' => 'WinPh',
+        'winphone' => 'Win Ph',
+        'windows-phone' => 'Win Ph',
+        'windows-phone-1' => 'Win Ph',
         'navigation' => 'Nav',
+        'navigation-systems' => 'Nav',
         'ios' => 'iOS',
-        'android' => 'Android',
+        'android' => 'Andr',
         'nds' => 'NDS',
         'wii' => 'Wii',
         'gba' => 'GBA',
         'gamecube' => 'GCN',
         '3ds' => '3DS',
+    ];
+
+    /** @var array<string, string> */
+    private const array NAME_LABELS = [
+        'Windows' => 'Win',
+        'Navigation' => 'Nav',
+        'Navigation systems' => 'Nav',
+        'Windows Phone' => 'Win Ph',
+        'Android' => 'Andr',
     ];
 }

@@ -14,10 +14,25 @@ test('returns abbreviated label for known slugs', function (string $slug, string
     ['mp3', 'MP3'],
     ['flac', 'FLAC'],
     ['windows', 'Win'],
+    ['windows-1', 'Win'],
+    ['navigation-systems', 'Nav'],
+    ['winphone', 'Win Ph'],
+    ['android', 'Andr'],
     ['playstation4', 'PS4'],
     ['xbox360', 'X360'],
     ['ios', 'iOS'],
     ['epub', 'ePub'],
+]);
+
+test('returns abbreviated label for known category names', function (string $name, string $expected) {
+    $category = new Category(['slug' => 'unknown-slug', 'name' => $name]);
+
+    expect($category->displayLabel())->toBe($expected);
+})->with([
+    ['Windows', 'Win'],
+    ['Navigation systems', 'Nav'],
+    ['Windows Phone', 'Win Ph'],
+    ['Android', 'Andr'],
 ]);
 
 test('falls back to name for unknown slugs', function () {

@@ -17,6 +17,7 @@ use App\Services\SpotImageService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Pagination\CursorPaginator;
 use Illuminate\View\View;
 
 class HomeController extends Controller
@@ -29,26 +30,44 @@ class HomeController extends Controller
         private readonly SearchDriver $searchDriver,
     ) {}
 
-    public function index(Request $request): View
+    public function index(Request $request): View|JsonResponse
     {
-        $spots = $this->listingCache->remember($request, fn() => $this->searchDriver
-            ->paginate(new SpotSearchCriteria(
-                term: $request->filled('q') ? (string) $request->q : null,
-                field: SearchField::fromRequest($request->search_in),
-                category: $request->filled('cat') ? (string) $request->cat : null,
-                subcategories: array_values(array_filter(
-                    (array) $request->subcat,
-                    \is_string(...),
-                )),
-                perPage: max(10, min(100, $request->integer('per_page', 50))),
-                page: max(1, $request->integer('page', 1)),
-            ))
-            ->withQueryString());
+        $criteria = $this->searchCriteria($request);
+
+        /** @var array{spots: CursorPaginator<int, Spot>, spotCount: int|null} $listing */
+        $listing = $this->listingCache->remember($request, function () use ($request, $criteria): array {
+            $spotCount = $request->expectsJson() ? null : $this->searchDriver->count($criteria);
+
+            return [
+                'spots' => $this->searchDriver
+                    ->cursorPaginate($criteria)
+                    ->withQueryString(),
+                'spotCount' => $spotCount,
+            ];
+        });
+
+        $categoriesByCode = Category::allCached()->keyBy('code');
+
+        if ($request->expectsJson()) {
+            $html = view('partials.spots-table', [
+                'spots' => $listing['spots'],
+                'spotCount' => 0,
+                'categoriesByCode' => $categoriesByCode,
+            ])->fragment('spot-rows');
+
+            return response()->json([
+                'html' => $html,
+                'next_url' => $listing['spots']->nextPageUrl(),
+                'has_more' => $listing['spots']->hasMorePages(),
+                'count' => $listing['spots']->count(),
+            ]);
+        }
 
         return view('spots.index', [
-            'spots' => $spots,
+            'spots' => $listing['spots'],
+            'spotCount' => $listing['spotCount'],
             'categoryTree' => Category::tree(),
-            'categoriesByCode' => Category::allCached()->keyBy('code'),
+            'categoriesByCode' => $categoriesByCode,
             'currentCategory' => $request->cat,
             'search' => $request->q,
             'subcats' => (array) $request->subcat,
@@ -91,12 +110,12 @@ class HomeController extends Controller
             'subcategoryNames' => $subcategoryNames,
             'rootCategory' => $spot->root_category,
             'badgeLabel' => $badgeLabel,
-            'hasBadgeCategory' => $badgeCategory instanceof \App\Models\Category,
+            'hasBadgeCategory' => $badgeCategory instanceof Category,
             'genreLabel' => $spot->resolveGenreLabel($categoriesByCode),
         ]);
     }
 
-    public function getNzb(Request $request, Spot $spot): Response
+    public function downloadNzb(Request $request, Spot $spot): Response
     {
         $nzb = $this->nzbService->fetchNzb($spot);
         $user = $request->user();
@@ -116,7 +135,7 @@ class HomeController extends Controller
         ]);
     }
 
-    public function getImage(Spot $spot): Response
+    public function downloadImage(Spot $spot): Response
     {
         try {
             $image = $this->imageService->fetch($spot);
@@ -134,6 +153,21 @@ class HomeController extends Controller
     public function categoriesJson(): JsonResponse
     {
         return response()->json(Category::tree());
+    }
+
+    private function searchCriteria(Request $request): SpotSearchCriteria
+    {
+        return new SpotSearchCriteria(
+            term: $request->filled('q') ? (string) $request->q : null,
+            field: SearchField::fromRequest($request->search_in),
+            category: $request->filled('cat') ? (string) $request->cat : null,
+            subcategories: array_values(array_filter(
+                (array) $request->subcat,
+                \is_string(...),
+            )),
+            perPage: max(10, min(100, $request->integer('per_page', 50))),
+            cursor: $request->filled('cursor') ? (string) $request->cursor : null,
+        );
     }
 
     private function imageResponse(string $data, string $contentType): Response

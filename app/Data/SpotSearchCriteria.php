@@ -24,5 +24,6 @@ final readonly class SpotSearchCriteria
         public array $termVariants = [],
         public array $metadataTermGroups = [],
         public ?int $offset = null,
+        public ?string $cursor = null,
     ) {}
 }

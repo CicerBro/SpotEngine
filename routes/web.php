@@ -11,9 +11,9 @@ use Illuminate\Support\Facades\Route;
 Route::middleware('auth')->group(function () {
     Route::get('/', [HomeController::class, 'index'])->name('home');
     Route::get('/spots/{spot}', [HomeController::class, 'show'])->name('spots.show');
-    Route::get('/spots/{spot}/image', [HomeController::class, 'getImage'])->name('spots.image');
+    Route::get('/spots/{spot}/image', [HomeController::class, 'downloadImage'])->name('spots.image');
     Route::get('/categories.json', [HomeController::class, 'categoriesJson'])->name('categories.json');
-    Route::get('/spots/{spot}/nzb', [HomeController::class, 'getNzb'])->name('spots.nzb');
+    Route::get('/spots/{spot}/nzb', [HomeController::class, 'downloadNzb'])->name('spots.nzb');
     Route::get('/profile', [ProfileController::class, 'show'])->name('profile');
     Route::post('/profile/api-key/regenerate', [ProfileController::class, 'regenerateApiKey'])->name('profile.api-key.regenerate');
 });

@@ -9,6 +9,8 @@ use App\Enums\SearchField;
 use App\Models\Spot;
 use App\Services\Search\Contracts\SearchDriver;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\Cursor;
+use Illuminate\Pagination\CursorPaginator;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 /**
@@ -39,30 +41,7 @@ class DatabaseSearchDriver implements SearchDriver
 
     public function paginate(SpotSearchCriteria $criteria): LengthAwarePaginator
     {
-        $term = trim((string) $criteria->term);
-        $query = $this->listingQuery();
-
-        if ($criteria->category !== null && $criteria->category !== '') {
-            $query->inCategory($criteria->category);
-        }
-
-        if ($criteria->subcategories !== []) {
-            $query->withSubcategory($criteria->subcategories);
-        }
-
-        if ($criteria->termVariants !== []) {
-            $this->searchVariants($query, $criteria->termVariants, $criteria->field);
-        } elseif ($term !== '') {
-            $this->search($query, $term, $criteria->field);
-        }
-
-        foreach ($criteria->metadataTermGroups as $metadataTerms) {
-            $this->whereMetadataContainsAny($query, $metadataTerms);
-        }
-
-        $query
-            ->orderByDesc('spot_posted_at')
-            ->orderByDesc('id');
+        $query = $this->filteredQuery($criteria);
 
         if ($criteria->offset === null) {
             return $query->paginate(
@@ -90,6 +69,55 @@ class DatabaseSearchDriver implements SearchDriver
                 'pageName' => $criteria->pageName,
             ],
         );
+    }
+
+    public function cursorPaginate(SpotSearchCriteria $criteria): CursorPaginator
+    {
+        $cursor = $criteria->cursor !== null && $criteria->cursor !== ''
+            ? Cursor::fromEncoded($criteria->cursor)
+            : null;
+
+        return $this->filteredQuery($criteria)
+            ->cursorPaginate(
+                $criteria->perPage,
+                cursor: $cursor,
+            );
+    }
+
+    public function count(SpotSearchCriteria $criteria): int
+    {
+        return $this->filteredQuery($criteria)->count();
+    }
+
+    /**
+     * @return Builder<Spot>
+     */
+    private function filteredQuery(SpotSearchCriteria $criteria): Builder
+    {
+        $term = trim((string) $criteria->term);
+        $query = $this->listingQuery();
+
+        if ($criteria->category !== null && $criteria->category !== '') {
+            $query->inCategory($criteria->category);
+        }
+
+        if ($criteria->subcategories !== []) {
+            $query->withSubcategory($criteria->subcategories);
+        }
+
+        if ($criteria->termVariants !== []) {
+            $this->searchVariants($query, $criteria->termVariants, $criteria->field);
+        } elseif ($term !== '') {
+            $this->search($query, $term, $criteria->field);
+        }
+
+        foreach ($criteria->metadataTermGroups as $metadataTerms) {
+            $this->whereMetadataContainsAny($query, $metadataTerms);
+        }
+
+        return $query
+            ->orderByDesc('spot_posted_at')
+            ->orderByDesc('id');
     }
 
     /**

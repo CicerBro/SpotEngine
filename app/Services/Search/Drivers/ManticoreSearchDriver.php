@@ -12,6 +12,8 @@ use App\Services\Search\Contracts\SearchDriver;
 use App\Services\Search\ManticoreDocumentMapper;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Client\ConnectionException;
+use Illuminate\Pagination\Cursor;
+use Illuminate\Pagination\CursorPaginator;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Http;
@@ -80,6 +82,83 @@ class ManticoreSearchDriver implements SearchDriver
                 'pageName' => $criteria->pageName,
             ],
         );
+    }
+
+    public function cursorPaginate(SpotSearchCriteria $criteria): CursorPaginator
+    {
+        $cursor = $criteria->cursor !== null && $criteria->cursor !== ''
+            ? Cursor::fromEncoded($criteria->cursor)
+            : null;
+
+        $payload = [
+            'table' => $this->index,
+            'query' => $this->buildQuery($criteria, $cursor),
+            '_source' => [],
+            'sort' => [
+                ['posted_at' => 'desc'],
+                ['id' => 'desc'],
+            ],
+            'limit' => $criteria->perPage + 1,
+            'options' => [
+                'max_matches' => $this->maxMatches,
+            ],
+        ];
+
+        $response = $this->jsonRequest('/search', $payload);
+        $hits = $response['hits'] ?? null;
+
+        if (! \is_array($hits) || ! \is_array($hits['hits'] ?? null)) {
+            throw new ManticoreSearchException('Manticore returned an invalid search response.');
+        }
+
+        $ids = $this->extractHitIds($hits['hits']);
+        $spots = $this->hydrateListingSpots($ids);
+
+        if ($spots->count() !== \count($ids)) {
+            throw new ManticoreSearchException(
+                'The Manticore index is out of sync with the spots table. Run php artisan spot:search-sync or spot:search-rebuild.',
+            );
+        }
+
+        $hasMore = $spots->count() > $criteria->perPage;
+        $items = $spots->take($criteria->perPage)->values();
+
+        return (new CursorPaginator(
+            $items,
+            $criteria->perPage,
+            $cursor,
+            [
+                'path' => CursorPaginator::resolveCurrentPath(),
+                'cursorName' => 'cursor',
+                'parameters' => ['spot_posted_at', 'id'],
+            ]
+        ))->hasMore($hasMore);
+    }
+
+    public function count(SpotSearchCriteria $criteria): int
+    {
+        $response = $this->jsonRequest('/search', [
+            'table' => $this->index,
+            'query' => $this->buildQuery($criteria),
+            '_source' => [],
+            'limit' => 0,
+            'options' => [
+                'max_matches' => $this->maxMatches,
+            ],
+        ]);
+        $hits = $response['hits'] ?? null;
+
+        if (! \is_array($hits) || ! \is_int($hits['total'] ?? null)) {
+            throw new ManticoreSearchException('Manticore returned an invalid search response.');
+        }
+
+        if (($hits['total_relation'] ?? 'eq') !== 'eq') {
+            throw new ManticoreSearchException(
+                'Manticore could not return an exact result count. Increase MANTICORE_MAX_MATCHES.',
+            );
+        }
+
+        return $hits['total'];
     }
 
     public function search(Builder $query, string $term, SearchField $field = SearchField::Title): Builder
@@ -203,10 +282,14 @@ class ManticoreSearchDriver implements SearchDriver
     /**
      * @return array<string, mixed>
      */
-    private function buildQuery(SpotSearchCriteria $criteria): array
+    private function buildQuery(SpotSearchCriteria $criteria, ?Cursor $cursor = null): array
     {
         $must = [];
         $term = trim((string) $criteria->term);
+
+        if ($cursor instanceof Cursor) {
+            $must[] = $this->cursorKeysetFilter($cursor);
+        }
 
         if ($criteria->termVariants !== []) {
             $must[] = $this->matchAny($criteria->termVariants, $criteria->field);
@@ -243,6 +326,39 @@ class ManticoreSearchDriver implements SearchDriver
         return $must === []
             ? ['match_all' => (object) []]
             : ['bool' => ['must' => $must]];
+    }
+
+    /**
+     * @return array{bool: array{should: list<array<string, mixed>>, minimum_should_match: int}}
+     */
+    private function cursorKeysetFilter(Cursor $cursor): array
+    {
+        $postedAt = $cursor->parameter('spot_posted_at');
+        $id = (int) $cursor->parameter('id');
+
+        $timestamp = match (true) {
+            $postedAt instanceof \DateTimeInterface => $postedAt->getTimestamp(),
+            is_numeric($postedAt) => (int) $postedAt,
+            is_string($postedAt) => strtotime($postedAt) ?: 0,
+            default => 0,
+        };
+
+        return [
+            'bool' => [
+                'should' => [
+                    ['range' => ['posted_at' => ['lt' => $timestamp]]],
+                    [
+                        'bool' => [
+                            'must' => [
+                                ['equals' => ['posted_at' => $timestamp]],
+                                ['range' => ['id' => ['lt' => $id]]],
+                            ],
+                        ],
+                    ],
+                ],
+                'minimum_should_match' => 1,
+            ],
+        ];
     }
 
     /**

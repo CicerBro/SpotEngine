@@ -24,10 +24,10 @@ enum RootCategory: string
     public function rowBackgroundClass(): string
     {
         return match ($this) {
-            self::Image => 'bg-blue-500/5 hover:bg-blue-500/10',
-            self::Audio => 'bg-amber-500/5 hover:bg-amber-500/10',
-            self::Games => 'bg-green-500/5 hover:bg-green-500/10',
-            self::Applications => 'bg-red-500/5 hover:bg-red-500/10',
+            self::Image => 'bg-blue-500/5 hover:bg-blue-500/10 dark:bg-blue-500/[0.08] dark:hover:bg-blue-500/[0.14]',
+            self::Audio => 'bg-amber-500/5 hover:bg-amber-500/10 dark:bg-amber-500/[0.08] dark:hover:bg-amber-500/[0.14]',
+            self::Games => 'bg-green-500/5 hover:bg-green-500/10 dark:bg-green-500/[0.08] dark:hover:bg-green-500/[0.14]',
+            self::Applications => 'bg-red-500/5 hover:bg-red-500/10 dark:bg-red-500/[0.08] dark:hover:bg-red-500/[0.14]',
         };
     }
 

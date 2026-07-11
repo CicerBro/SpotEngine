@@ -10,6 +10,7 @@ use App\Services\BbCodeParsingService;
 use App\Services\Search\Contracts\SearchDriver;
 use Carbon\CarbonImmutable;
 use Database\Factories\SpotFactory;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Scope;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -47,7 +48,7 @@ use Illuminate\Support\Collection;
  * @property-read string $size_formatted
  * @property-read string $sender
  */
-#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+#[Fillable([
     'message_id',
     'poster',
     'poster_key_id',
@@ -130,7 +131,9 @@ class Spot extends Model
     #[Scope]
     protected function latestFirst(Builder $query): Builder
     {
-        return $query->orderBy('spot_posted_at', 'desc');
+        return $query
+            ->orderByDesc('spot_posted_at')
+            ->orderByDesc('id');
     }
 
     #[Scope]
