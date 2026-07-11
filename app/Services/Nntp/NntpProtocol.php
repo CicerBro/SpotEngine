@@ -25,6 +25,24 @@ final class NntpProtocol
         return new self(new ResourceNntpStream($stream), $readChunkSize);
     }
 
+    /**
+     * @return list<string>
+     */
+    public static function decodeCompressedTextResponse(string $wireData): array
+    {
+        if (str_ends_with($wireData, ".\r\n")) {
+            $wireData = substr($wireData, 0, -3);
+        }
+
+        $decompressed = @gzuncompress($wireData);
+
+        if ($decompressed === false) {
+            throw new NntpException('Failed to decompress NNTP overview response', operation: 'XOVER');
+        }
+
+        return self::splitDecompressedResponse($decompressed);
+    }
+
     public function writeCommand(string $command): void
     {
         if ($command === '' || strlen($command) > self::MAX_COMMAND_LENGTH) {
@@ -140,24 +158,6 @@ final class NntpProtocol
 
             $wireData .= $chunk;
         }
-    }
-
-    /**
-     * @return list<string>
-     */
-    public static function decodeCompressedTextResponse(string $wireData): array
-    {
-        if (str_ends_with($wireData, ".\r\n")) {
-            $wireData = substr($wireData, 0, -3);
-        }
-
-        $decompressed = @gzuncompress($wireData);
-
-        if ($decompressed === false) {
-            throw new NntpException('Failed to decompress NNTP overview response', operation: 'XOVER');
-        }
-
-        return self::splitDecompressedResponse($decompressed);
     }
 
     /** @return list<string> */

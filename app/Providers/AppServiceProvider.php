@@ -21,10 +21,7 @@ class AppServiceProvider extends ServiceProvider
      * Register any application services.
      */
     #[\Override]
-    public function register(): void
-    {
-        //
-    }
+    public function register(): void {}
 
     /**
      * Bootstrap any application services.
@@ -37,13 +34,13 @@ class AppServiceProvider extends ServiceProvider
 
         RateLimiter::for('newznab', function (Request $request): Limit {
             $user = auth('api')->user();
-            $key = $user !== null ? 'user:'.$user->getAuthIdentifier() : 'ip:'.$request->ip();
+            $key = $user !== null ? 'user:' . $user->getAuthIdentifier() : 'ip:' . $request->ip();
 
             return Limit::perMinute(max(1, (int) config('spotengine.newznab.rate_limit_per_minute', 60)))
                 ->by($key)
                 ->response(function (Request $request, array $headers) {
-                    $xml = '<?xml version="1.0" encoding="UTF-8"?>'."\n"
-                        .'<error code="500" description="API rate limit exceeded"/>';
+                    $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+                        . '<error code="500" description="API rate limit exceeded"/>';
 
                     return response($xml, 429, [
                         ...$headers,

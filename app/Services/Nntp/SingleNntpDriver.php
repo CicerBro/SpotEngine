@@ -51,6 +51,11 @@ class SingleNntpDriver implements NntpDriverInterface
         );
     }
 
+    public function __destruct()
+    {
+        $this->quit();
+    }
+
     /** @param array<string, mixed> $config */
     public static function fromConfig(array $config): self
     {
@@ -104,21 +109,6 @@ class SingleNntpDriver implements NntpDriverInterface
         }
 
         $this->enableCompression();
-    }
-
-    private function authenticate(): void
-    {
-        $this->sendCommand("AUTHINFO USER {$this->username}");
-        $response = $this->readResponse();
-
-        if ($response->is(ResponseCode::AuthenticationContinue)) {
-            $this->sendCommand("AUTHINFO PASS {$this->password}");
-            $response = $this->readResponse();
-        }
-
-        if (! $response->is(ResponseCode::AuthenticationAccepted)) {
-            throw NntpException::unexpected('AUTHINFO', $response);
-        }
     }
 
     public function enableCompression(): bool
@@ -415,6 +405,21 @@ class SingleNntpDriver implements NntpDriverInterface
         return $this->socket !== null && ! feof($this->socket);
     }
 
+    private function authenticate(): void
+    {
+        $this->sendCommand("AUTHINFO USER {$this->username}");
+        $response = $this->readResponse();
+
+        if ($response->is(ResponseCode::AuthenticationContinue)) {
+            $this->sendCommand("AUTHINFO PASS {$this->password}");
+            $response = $this->readResponse();
+        }
+
+        if (! $response->is(ResponseCode::AuthenticationAccepted)) {
+            throw NntpException::unexpected('AUTHINFO', $response);
+        }
+    }
+
     private function getTextResponse(): array
     {
         if ($this->compressionEnabled && $this->lastResponse instanceof NntpResponse &&
@@ -461,10 +466,5 @@ class SingleNntpDriver implements NntpDriverInterface
         }
 
         return $header;
-    }
-
-    public function __destruct()
-    {
-        $this->quit();
     }
 }

@@ -75,7 +75,7 @@ class BbCodeParsingService
                 $tagEnd = $close + 1;
 
                 if (str_starts_with($tagContent, '/')) {
-                    $out .= $this->escape('['.$tagContent.']');
+                    $out .= $this->escape('[' . $tagContent . ']');
                     $i = $tagEnd;
 
                     continue;
@@ -117,10 +117,10 @@ class BbCodeParsingService
         }
 
         if (in_array($tagName, ['b', 'i', 'u', 's'], true)) {
-            $closeTag = '[/'.$tagName.']';
+            $closeTag = '[/' . $tagName . ']';
             $pos = $this->findClosingTagPosition($input, $closeTag, $afterBracket);
             if ($pos === false) {
-                return ['html' => $this->escape('['.$tagContent.']'), 'next' => $afterBracket];
+                return ['html' => $this->escape('[' . $tagContent . ']'), 'next' => $afterBracket];
             }
             $inner = substr($input, $afterBracket, $pos - $afterBracket);
             $pair = match ($tagName) {
@@ -129,7 +129,7 @@ class BbCodeParsingService
                 'u' => ['<u>', '</u>'],
                 's' => ['<s>', '</s>'],
             };
-            $html = $pair[0].$this->parseFragment($inner).$pair[1];
+            $html = $pair[0] . $this->parseFragment($inner) . $pair[1];
 
             return ['html' => $html, 'next' => $pos + \strlen($closeTag)];
         }
@@ -140,7 +140,7 @@ class BbCodeParsingService
                 $closePos = $this->findClosingTagPosition($input, '[/size]', $afterBracket);
                 if ($closePos !== false) {
                     $inner = substr($input, $afterBracket, $closePos - $afterBracket);
-                    $html = '<span style="font-size:'.$num.'px">'.$this->parseFragment($inner).'</span>';
+                    $html = '<span style="font-size:' . $num . 'px">' . $this->parseFragment($inner) . '</span>';
 
                     return ['html' => $html, 'next' => $closePos + 7];
                 }
@@ -155,7 +155,7 @@ class BbCodeParsingService
                 $closePos = $this->findClosingTagPosition($input, '[/color]', $afterBracket);
                 if ($closePos !== false) {
                     $inner = substr($input, $afterBracket, $closePos - $afterBracket);
-                    $html = '<span style="color:'.$this->escapeAttr($color).'">'.$this->parseFragment($inner).'</span>';
+                    $html = '<span style="color:' . $this->escapeAttr($color) . '">' . $this->parseFragment($inner) . '</span>';
 
                     return ['html' => $html, 'next' => $closePos + 8];
                 }
@@ -165,14 +165,14 @@ class BbCodeParsingService
         }
 
         if (in_array($tagName, ['center', 'left', 'right'], true)) {
-            $closeTag = '[/'.$tagName.']';
+            $closeTag = '[/' . $tagName . ']';
             $pos = $this->findClosingTagPosition($input, $closeTag, $afterBracket);
             if ($pos === false) {
                 return null;
             }
             $inner = substr($input, $afterBracket, $pos - $afterBracket);
             $align = $tagName === 'center' ? 'center' : ($tagName === 'right' ? 'right' : 'left');
-            $html = '<div style="text-align:'.$align.'">'.$this->parseFragment($inner).'</div>';
+            $html = '<div style="text-align:' . $align . '">' . $this->parseFragment($inner) . '</div>';
 
             return ['html' => $html, 'next' => $pos + \strlen($closeTag)];
         }
@@ -189,7 +189,7 @@ class BbCodeParsingService
             }
 
             $inner = substr($input, $afterBracket, $closePos - $afterBracket);
-            $html = '<a href="'.$this->escapeAttr($href).'" rel="noopener noreferrer nofollow" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline break-all">';
+            $html = '<a href="' . $this->escapeAttr($href) . '" rel="noopener noreferrer nofollow" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline break-all">';
             $html .= $this->parseFragment($inner);
             $html .= '</a>';
 
@@ -206,7 +206,7 @@ class BbCodeParsingService
             if ($href === null) {
                 return null;
             }
-            $html = '<a href="'.$this->escapeAttr($href).'" rel="noopener noreferrer nofollow" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline break-all">'.$this->escapeAttr($inner).'</a>';
+            $html = '<a href="' . $this->escapeAttr($href) . '" rel="noopener noreferrer nofollow" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline break-all">' . $this->escapeAttr($inner) . '</a>';
 
             return ['html' => $html, 'next' => $closePos + 6];
         }
@@ -220,9 +220,9 @@ class BbCodeParsingService
             $cite = ($attr !== null && $attr !== '') ? trim($attr, '"\'') : null;
             $html = '<blockquote class="border-l-4 border-gray-600 pl-4 my-2 text-gray-400">';
             if ($cite !== null) {
-                $html .= '<cite class="block font-semibold text-gray-300 mb-1">'.$this->escape($cite).' wrote:</cite>';
+                $html .= '<cite class="block font-semibold text-gray-300 mb-1">' . $this->escape($cite) . ' wrote:</cite>';
             }
-            $html .= $this->parseFragment($inner).'</blockquote>';
+            $html .= $this->parseFragment($inner) . '</blockquote>';
 
             return ['html' => $html, 'next' => $closePos + 8];
         }
@@ -234,7 +234,7 @@ class BbCodeParsingService
             }
             $inner = substr($input, $afterBracket, $closePos - $afterBracket);
             $summary = ($attr !== null && $attr !== '') ? trim($attr, '"\'') : 'Spoiler';
-            $html = '<details class="my-2"><summary class="cursor-pointer text-gray-400 hover:text-gray-300">'.$this->escape($summary).'</summary><div class="mt-1">'.$this->parseFragment($inner).'</div></details>';
+            $html = '<details class="my-2"><summary class="cursor-pointer text-gray-400 hover:text-gray-300">' . $this->escape($summary) . '</summary><div class="mt-1">' . $this->parseFragment($inner) . '</div></details>';
 
             return ['html' => $html, 'next' => $closePos + 10];
         }
@@ -245,8 +245,8 @@ class BbCodeParsingService
                 return null;
             }
             $raw = substr($input, $afterBracket, $closePos - $afterBracket);
-            $lang = ($attr !== null && $attr !== '') ? ' language-'.trim((string) preg_replace('/[^a-z0-9_-]/i', '', $attr)) : '';
-            $html = '<pre class="bg-gray-800 rounded p-3 overflow-x-auto text-sm my-2"><code'.$lang.'>'.$this->escape($raw).'</code></pre>';
+            $lang = ($attr !== null && $attr !== '') ? ' language-' . trim((string) preg_replace('/[^a-z0-9_-]/i', '', $attr)) : '';
+            $html = '<pre class="bg-gray-800 rounded p-3 overflow-x-auto text-sm my-2"><code' . $lang . '>' . $this->escape($raw) . '</code></pre>';
 
             return ['html' => $html, 'next' => $closePos + 7];
         }
@@ -257,13 +257,13 @@ class BbCodeParsingService
                 return null;
             }
             $raw = substr($input, $afterBracket, $closePos - $afterBracket);
-            $html = '<pre class="bg-gray-800 rounded p-3 overflow-x-auto text-sm my-2 whitespace-pre">'.$this->escape($raw).'</pre>';
+            $html = '<pre class="bg-gray-800 rounded p-3 overflow-x-auto text-sm my-2 whitespace-pre">' . $this->escape($raw) . '</pre>';
 
             return ['html' => $html, 'next' => $closePos + 6];
         }
 
         if (in_array($tagName, ['list', 'ul', 'ol'], true)) {
-            $closeTag = '[/'.$tagName.']';
+            $closeTag = '[/' . $tagName . ']';
             $pos = $this->findClosingTagPosition($input, $closeTag, $afterBracket);
             if ($pos === false) {
                 return null;
@@ -272,7 +272,7 @@ class BbCodeParsingService
             $listHtml = $this->parseListItems($inner);
             $ordered = $tagName === 'ol' || ($tagName === 'list' && $attr !== null && $attr !== '');
             $tag = $ordered ? 'ol' : 'ul';
-            $html = '<'.$tag.' class="list-disc list-inside my-2 space-y-1">'.$listHtml.'</'.$tag.'>';
+            $html = '<' . $tag . ' class="list-disc list-inside my-2 space-y-1">' . $listHtml . '</' . $tag . '>';
 
             return ['html' => $html, 'next' => $pos + \strlen($closeTag)];
         }
@@ -284,7 +284,7 @@ class BbCodeParsingService
             }
             $inner = substr($input, $afterBracket, $closePos - $afterBracket);
 
-            return ['html' => '<li>'.$this->parseFragment($inner).'</li>', 'next' => $closePos + 5];
+            return ['html' => '<li>' . $this->parseFragment($inner) . '</li>', 'next' => $closePos + 5];
         }
 
         if ($tagName === 'table') {
@@ -293,7 +293,7 @@ class BbCodeParsingService
                 return null;
             }
             $inner = substr($input, $afterBracket, $closePos - $afterBracket);
-            $html = '<div class="overflow-x-auto my-2"><table class="min-w-full border border-gray-600 border-collapse">'.$this->parseFragment($inner).'</table></div>';
+            $html = '<div class="overflow-x-auto my-2"><table class="min-w-full border border-gray-600 border-collapse">' . $this->parseFragment($inner) . '</table></div>';
 
             return ['html' => $html, 'next' => $closePos + 8];
         }
@@ -305,7 +305,7 @@ class BbCodeParsingService
             }
             $inner = substr($input, $afterBracket, $closePos - $afterBracket);
 
-            return ['html' => '<tr>'.$this->parseFragment($inner).'</tr>', 'next' => $closePos + 5];
+            return ['html' => '<tr>' . $this->parseFragment($inner) . '</tr>', 'next' => $closePos + 5];
         }
 
         if ($tagName === 'th') {
@@ -315,7 +315,7 @@ class BbCodeParsingService
             }
             $inner = substr($input, $afterBracket, $closePos - $afterBracket);
 
-            return ['html' => '<th class="border border-gray-600 px-3 py-2 text-left bg-gray-800">'.$this->parseFragment($inner).'</th>', 'next' => $closePos + 5];
+            return ['html' => '<th class="border border-gray-600 px-3 py-2 text-left bg-gray-800">' . $this->parseFragment($inner) . '</th>', 'next' => $closePos + 5];
         }
 
         if ($tagName === 'td') {
@@ -325,7 +325,7 @@ class BbCodeParsingService
             }
             $inner = substr($input, $afterBracket, $closePos - $afterBracket);
 
-            return ['html' => '<td class="border border-gray-600 px-3 py-2">'.$this->parseFragment($inner).'</td>', 'next' => $closePos + 5];
+            return ['html' => '<td class="border border-gray-600 px-3 py-2">' . $this->parseFragment($inner) . '</td>', 'next' => $closePos + 5];
         }
 
         if ($tagName === 'youtube') {
@@ -335,7 +335,7 @@ class BbCodeParsingService
             }
             $id = trim(substr($input, $afterBracket, $closePos - $afterBracket));
             if ($id !== '' && preg_match('/^[a-zA-Z0-9_-]{10,11}$/', $id)) {
-                $html = '<span class="inline-block my-1"><a href="https://www.youtube.com/watch?v='.$this->escapeAttr($id).'" rel="noopener noreferrer nofollow" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline">Watch on YouTube ('.$this->escape($id).')</a></span>';
+                $html = '<span class="inline-block my-1"><a href="https://www.youtube.com/watch?v=' . $this->escapeAttr($id) . '" rel="noopener noreferrer nofollow" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline">Watch on YouTube (' . $this->escape($id) . ')</a></span>';
 
                 return ['html' => $html, 'next' => $closePos + 10];
             }
@@ -352,10 +352,10 @@ class BbCodeParsingService
             $urlRaw = trim(substr($input, $afterBracket, $closePos - $afterBracket));
             $href = $this->sanitizeUrl($urlRaw);
             if ($href === null) {
-                return ['html' => $this->escape('['.$tagContent.']'.substr($input, $afterBracket, $closePos - $afterBracket).'[/img]'), 'next' => $closePos + 6];
+                return ['html' => $this->escape('[' . $tagContent . ']' . substr($input, $afterBracket, $closePos - $afterBracket) . '[/img]'), 'next' => $closePos + 6];
             }
 
-            $html = '<a href="'.$this->escapeAttr($href).'" rel="noopener noreferrer nofollow" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-200 text-white hover:bg-gray-600 text-xs border border-gray-400">';
+            $html = '<a href="' . $this->escapeAttr($href) . '" rel="noopener noreferrer nofollow" target="_blank" class="inline-flex items-center gap-1 px-2 py-1 rounded bg-gray-200 text-white hover:bg-gray-600 text-xs border border-gray-400">';
             $html .= '<span aria-hidden="true">🖼</span> View image';
             $html .= '</a>';
 
@@ -385,12 +385,12 @@ class BbCodeParsingService
             if ($pos === false) {
                 $segment = substr($inner, $start);
                 if ($segment !== '') {
-                    $out .= '<li>'.$this->parseFragment($segment).'</li>';
+                    $out .= '<li>' . $this->parseFragment($segment) . '</li>';
                 }
                 break;
             }
             $segment = substr($inner, $start, $pos - $start);
-            $out .= '<li>'.$this->parseFragment($segment).'</li>';
+            $out .= '<li>' . $this->parseFragment($segment) . '</li>';
             $start = $pos + 3;
         }
 
@@ -466,7 +466,7 @@ class BbCodeParsingService
 
             if ($href !== null) {
                 $trailing = \strlen($part) > \strlen($url) ? $this->escape(substr($part, \strlen($url))) : '';
-                $out .= '<a href="'.$this->escapeAttr($href).'" rel="noopener noreferrer nofollow" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline break-all">'.$this->escapeAttr($url).'</a>'.$trailing;
+                $out .= '<a href="' . $this->escapeAttr($href) . '" rel="noopener noreferrer nofollow" target="_blank" class="text-indigo-400 hover:text-indigo-300 underline break-all">' . $this->escapeAttr($url) . '</a>' . $trailing;
             } else {
                 $out .= $this->escape($part);
             }

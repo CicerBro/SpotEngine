@@ -1,6 +1,7 @@
 <?php
 
 declare(strict_types=1);
+use Illuminate\Support\Facades\Log;
 
 if (! function_exists('log_debug')) {
     /**
@@ -14,7 +15,7 @@ if (! function_exists('log_debug')) {
             return;
         }
 
-        \Illuminate\Support\Facades\Log::info($message, $context);
+        Log::info($message, $context);
     }
 }
 
@@ -28,9 +29,9 @@ if (! function_exists('nestedCachePath')) {
     function nestedCachePath(string $basePath, string $hash, string $extension): string
     {
         return $basePath
-            .DIRECTORY_SEPARATOR.$hash[0]
-            .DIRECTORY_SEPARATOR.$hash[1]
-            .DIRECTORY_SEPARATOR.$hash.'.'.$extension;
+            . DIRECTORY_SEPARATOR . $hash[0]
+            . DIRECTORY_SEPARATOR . $hash[1]
+            . DIRECTORY_SEPARATOR . $hash . '.' . $extension;
     }
 }
 
@@ -43,7 +44,7 @@ if (! function_exists('formatBytes')) {
         $maxPower = count($units) - 1;
 
         if ($size <= 0) {
-            return number_format(0, $decimals, '.', ',').' '.$units[0];
+            return number_format(0, $decimals, '.', ',') . ' ' . $units[0];
         }
 
         $power = 0;
@@ -59,6 +60,6 @@ if (! function_exists('formatBytes')) {
             $power++;
         }
 
-        return number_format($value, $decimals, '.', ',').' '.$units[$power];
+        return number_format($value, $decimals, '.', ',') . ' ' . $units[$power];
     }
 }

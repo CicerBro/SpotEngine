@@ -137,7 +137,7 @@ test('over max length returns escaped only', function () {
 test('long description with many tags parses without hanging', function () {
     $chunks = [];
     for ($i = 0; $i < 500; $i++) {
-        $chunks[] = '[b]bold '.$i.'[/b] [br]';
+        $chunks[] = '[b]bold ' . $i . '[/b] [br]';
     }
     $input = implode('', $chunks);
 

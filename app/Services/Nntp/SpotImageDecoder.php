@@ -210,7 +210,7 @@ final readonly class SpotImageDecoder
             }
         }
 
-        $decoded = convert_uudecode(implode("\n", $payloadLines)."\n");
+        $decoded = convert_uudecode(implode("\n", $payloadLines) . "\n");
 
         if ($decoded === false) {
             throw new \UnexpectedValueException('The uuencoded image body is invalid.');

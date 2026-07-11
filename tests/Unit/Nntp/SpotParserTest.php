@@ -240,7 +240,7 @@ function signedModerationOverview(string $subject): array
 
     $poster = 'Moderator';
     $unsignedHeader = '12a0.0.0.1700100000.0.NL';
-    openssl_sign($subject.$unsignedHeader.$poster, $signature, $privateKey, OPENSSL_ALGO_SHA1);
+    openssl_sign($subject . $unsignedHeader . $poster, $signature, $privateKey, OPENSSL_ALGO_SHA1);
     $preparedSignature = str_replace(['+', '/', '='], ['-p', '-s', '-e'], base64_encode($signature));
 
     return [

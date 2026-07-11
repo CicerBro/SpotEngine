@@ -4,28 +4,23 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use Database\Factories\UserDownloadFactory;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\WithoutTimestamps;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+#[Fillable([
     'user_id',
     'spot_id',
     'downloaded_at',
 ])]
-#[\Illuminate\Database\Eloquent\Attributes\WithoutTimestamps]
+#[WithoutTimestamps]
 class UserDownload extends Model
 {
-    /** @use HasFactory<\Database\Factories\UserDownloadFactory> */
+    /** @use HasFactory<UserDownloadFactory> */
     use HasFactory;
-
-    #[\Override]
-    protected function casts(): array
-    {
-        return [
-            'downloaded_at' => 'immutable_datetime',
-        ];
-    }
 
     public function user(): BelongsTo
     {
@@ -35,5 +30,13 @@ class UserDownload extends Model
     public function spot(): BelongsTo
     {
         return $this->belongsTo(Spot::class);
+    }
+
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'downloaded_at' => 'immutable_datetime',
+        ];
     }
 }

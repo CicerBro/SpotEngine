@@ -10,7 +10,7 @@ return new class extends Migration
     public function up(): void
     {
         DB::statement(
-            'CREATE INDEX IF NOT EXISTS idx_spots_unenriched '.
+            'CREATE INDEX IF NOT EXISTS idx_spots_unenriched ' .
             'ON spots (id) WHERE xml_signature IS NULL',
         );
     }

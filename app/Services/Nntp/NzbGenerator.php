@@ -209,7 +209,7 @@ class NzbGenerator
 
         foreach ($zlibHeaders as $header) {
             // Calculate and append Adler-32 checksum for valid zlib stream
-            $zlibData = $header.$data;
+            $zlibData = $header . $data;
             $result = @gzuncompress($zlibData);
             if ($result !== false && $this->looksLikeNzb($result)) {
                 return $result;

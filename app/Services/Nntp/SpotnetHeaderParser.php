@@ -85,14 +85,6 @@ final class SpotnetHeaderParser
         return $state['headers'];
     }
 
-    /** @param array<string, string> $headers */
-    private function storeHeader(array &$headers, string $name, string $value): void
-    {
-        if ($name !== '') {
-            $headers[$name] = $this->decodeHeader($value);
-        }
-    }
-
     public function decodeHeader(string $header): string
     {
         if (! str_contains($header, '=?')) {
@@ -102,5 +94,13 @@ final class SpotnetHeaderParser
         $decoded = iconv_mime_decode($header, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, 'UTF-8');
 
         return $decoded !== false ? $decoded : $header;
+    }
+
+    /** @param array<string, string> $headers */
+    private function storeHeader(array &$headers, string $name, string $value): void
+    {
+        if ($name !== '') {
+            $headers[$name] = $this->decodeHeader($value);
+        }
     }
 }

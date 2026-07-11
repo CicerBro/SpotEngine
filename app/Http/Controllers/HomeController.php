@@ -133,7 +133,7 @@ class HomeController extends Controller
 
         $headers = [
             'Content-Type' => 'application/x-nzb',
-            'Content-Disposition' => 'attachment; filename="'.$this->nzbService->filename($spot).'"',
+            'Content-Disposition' => 'attachment; filename="' . $this->nzbService->filename($spot) . '"',
             'X-DNZB-Name' => $spot->title,
             'Cache-Control' => 'public, max-age=2592000',
             'Vary' => 'Accept-Encoding',
@@ -187,7 +187,7 @@ class HomeController extends Controller
             'Content-Type' => $contentType,
             'Content-Length' => (string) strlen($data),
             'Cache-Control' => 'public, max-age=2592000, immutable',
-            'ETag' => '"'.hash('sha256', $data).'"',
+            'ETag' => '"' . hash('sha256', $data) . '"',
             'X-Content-Type-Options' => 'nosniff',
         ]);
     }
@@ -201,7 +201,7 @@ class HomeController extends Controller
 
     private function placeholderImageResponse(string $text): Response
     {
-        $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280" viewBox="0 0 200 280"><rect fill="#1f2937" width="200" height="280"/><text x="100" y="140" text-anchor="middle" fill="#6b7280" font-family="sans-serif" font-size="14">'.htmlspecialchars($text).'</text></svg>';
+        $svg = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="280" viewBox="0 0 200 280"><rect fill="#1f2937" width="200" height="280"/><text x="100" y="140" text-anchor="middle" fill="#6b7280" font-family="sans-serif" font-size="14">' . htmlspecialchars($text) . '</text></svg>';
 
         return response($svg, 200, [
             'Content-Type' => 'image/svg+xml',

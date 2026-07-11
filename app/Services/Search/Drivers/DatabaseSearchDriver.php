@@ -89,6 +89,57 @@ class DatabaseSearchDriver implements SearchDriver
         return $this->filteredQuery($criteria)->count();
     }
 
+    public function search(Builder $query, string $term, SearchField $field = SearchField::Title): Builder
+    {
+        return match ($field) {
+            SearchField::Title => $this->applyTitleSearch($query, $term),
+            SearchField::Description => $this->applyDescriptionSearch($query, $term),
+            SearchField::Both => $this->applyBothSearch($query, $term),
+        };
+    }
+
+    public function searchVariants(Builder $query, array $variants, SearchField $field = SearchField::Title): Builder
+    {
+        if ($variants === []) {
+            return $query;
+        }
+
+        return $query->where(function (Builder $q) use ($variants, $field): void {
+            foreach ($variants as $variant) {
+                $q->orWhere(function (Builder $inner) use ($variant, $field): void {
+                    $this->search($inner, $variant, $field);
+                });
+            }
+        });
+    }
+
+    public function indexSpot(Spot $spot): void {}
+
+    public function deleteSpot(int $id): void {}
+
+    public function usesExternalIndex(): bool
+    {
+        return false;
+    }
+
+    public function ensureIndex(): void {}
+
+    public function truncateIndex(): void {}
+
+    public function indexSpots(iterable $spots): void {}
+
+    public function deleteSpots(array $ids): void {}
+
+    public function indexedDocumentCount(): int
+    {
+        return 0;
+    }
+
+    public function findIndexedIds(array $ids): array
+    {
+        return [];
+    }
+
     /**
      * @return Builder<Spot>
      */
@@ -131,30 +182,6 @@ class DatabaseSearchDriver implements SearchDriver
             ->with('category:code,name,slug');
     }
 
-    public function search(Builder $query, string $term, SearchField $field = SearchField::Title): Builder
-    {
-        return match ($field) {
-            SearchField::Title => $this->applyTitleSearch($query, $term),
-            SearchField::Description => $this->applyDescriptionSearch($query, $term),
-            SearchField::Both => $this->applyBothSearch($query, $term),
-        };
-    }
-
-    public function searchVariants(Builder $query, array $variants, SearchField $field = SearchField::Title): Builder
-    {
-        if ($variants === []) {
-            return $query;
-        }
-
-        return $query->where(function (Builder $q) use ($variants, $field): void {
-            foreach ($variants as $variant) {
-                $q->orWhere(function (Builder $inner) use ($variant, $field): void {
-                    $this->search($inner, $variant, $field);
-                });
-            }
-        });
-    }
-
     /**
      * @param  list<string>  $terms
      */
@@ -162,7 +189,7 @@ class DatabaseSearchDriver implements SearchDriver
     {
         return $query->where(function (Builder $metadataQuery) use ($terms): void {
             foreach ($terms as $term) {
-                $pattern = '%'.$term.'%';
+                $pattern = '%' . $term . '%';
 
                 $metadataQuery->orWhere(function (Builder $termQuery) use ($pattern): void {
                     $termQuery
@@ -174,51 +201,6 @@ class DatabaseSearchDriver implements SearchDriver
         });
     }
 
-    public function indexSpot(Spot $spot): void
-    {
-        //
-    }
-
-    public function deleteSpot(int $id): void
-    {
-        //
-    }
-
-    public function usesExternalIndex(): bool
-    {
-        return false;
-    }
-
-    public function ensureIndex(): void
-    {
-        //
-    }
-
-    public function truncateIndex(): void
-    {
-        //
-    }
-
-    public function indexSpots(iterable $spots): void
-    {
-        //
-    }
-
-    public function deleteSpots(array $ids): void
-    {
-        //
-    }
-
-    public function indexedDocumentCount(): int
-    {
-        return 0;
-    }
-
-    public function findIndexedIds(array $ids): array
-    {
-        return [];
-    }
-
     /**
      * Title search against idx_spots_fts_title_simple.
      * Uses 'simple' dict — "candy" is exact, "candy*" enables prefix.
@@ -227,13 +209,13 @@ class DatabaseSearchDriver implements SearchDriver
     {
         if ($this->hasWildcard($term)) {
             return $query->whereRaw(
-                self::TITLE_VEC." @@ to_tsquery('simple', ?)",
+                self::TITLE_VEC . " @@ to_tsquery('simple', ?)",
                 [$this->buildWildcardQuery($term)]
             );
         }
 
         return $query->whereRaw(
-            self::TITLE_VEC." @@ websearch_to_tsquery('simple', ?)",
+            self::TITLE_VEC . " @@ websearch_to_tsquery('simple', ?)",
             [$term]
         );
     }
@@ -245,7 +227,7 @@ class DatabaseSearchDriver implements SearchDriver
     private function applyDescriptionSearch(Builder $query, string $term): Builder
     {
         return $query->whereRaw(
-            self::DESC_VEC." @@ websearch_to_tsquery('english', ?)",
+            self::DESC_VEC . " @@ websearch_to_tsquery('english', ?)",
             [$this->stripWildcards($term)]
         );
     }
@@ -260,7 +242,7 @@ class DatabaseSearchDriver implements SearchDriver
     {
         if (! $this->hasWildcard($term)) {
             return $query->whereRaw(
-                self::BOTH_VEC." @@ websearch_to_tsquery('english', ?)",
+                self::BOTH_VEC . " @@ websearch_to_tsquery('english', ?)",
                 [$term]
             );
         }
@@ -269,8 +251,8 @@ class DatabaseSearchDriver implements SearchDriver
         $cleanTerm = $this->stripWildcards($term);
 
         return $query->where(function (Builder $q) use ($wildcardQuery, $cleanTerm): void {
-            $q->whereRaw(self::TITLE_VEC." @@ to_tsquery('simple', ?)", [$wildcardQuery])
-                ->orWhereRaw(self::DESC_VEC." @@ websearch_to_tsquery('english', ?)", [$cleanTerm]);
+            $q->whereRaw(self::TITLE_VEC . " @@ to_tsquery('simple', ?)", [$wildcardQuery])
+                ->orWhereRaw(self::DESC_VEC . " @@ websearch_to_tsquery('english', ?)", [$cleanTerm]);
         });
     }
 
@@ -321,8 +303,8 @@ class DatabaseSearchDriver implements SearchDriver
                 continue;
             }
 
-            $token = $clean.($isPrefix ? ':*' : '');
-            $token = $negated ? '!'.$token : $token;
+            $token = $clean . ($isPrefix ? ':*' : '');
+            $token = $negated ? '!' . $token : $token;
 
             if ($parts !== []) {
                 $parts[] = $pendingOp;

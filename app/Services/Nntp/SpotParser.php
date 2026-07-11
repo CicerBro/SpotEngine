@@ -171,78 +171,6 @@ class SpotParser
     }
 
     /**
-     * Parse the subcategory substring from a Spotnet From domain first field.
-     *
-     * Format: letter+digits pairs (e.g. "a11b03c04d44z02" or "a9b4c0d5").
-     * Returns canonical codes prefixed with the 2-digit head category
-     * (e.g. ["01a11", "01b03", "01c04", ...]).
-     *
-     * @return array<string>
-     */
-    private function parseSubcatString(string $str, string $mainCategoryCode): array
-    {
-        if ($str === '') {
-            return [];
-        }
-
-        $valid = ['a', 'b', 'c', 'd', 'z'];
-        $subs = [];
-        $tmp = '';
-        $str = strtolower($str).'!'; // sentinel to flush the last entry
-
-        for ($i = 0, $len = \strlen($str); $i < $len; $i++) {
-            $ch = $str[$i];
-
-            if (! is_numeric($ch) && $tmp !== '') {
-                if (\in_array($tmp[0], $valid, true)) {
-                    $normalized = $this->normalizeSubcategoryCode($tmp, $mainCategoryCode);
-                    if ($normalized !== null) {
-                        $subs[] = $normalized;
-                    }
-                }
-
-                $tmp = '';
-            }
-
-            if (\in_array($ch, $valid, true) || is_numeric($ch)) {
-                $tmp .= $ch;
-            }
-        }
-
-        return array_values(array_unique($subs));
-    }
-
-    /**
-     * Decode RFC 2047 MIME-encoded header words (=?charset?B?...?=).
-     */
-    private function decodeMimeHeader(string $header): string
-    {
-        if (! str_contains($header, '=?')) {
-            return $header;
-        }
-
-        $decoded = iconv_mime_decode($header, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, 'UTF-8');
-
-        return $decoded !== false ? $decoded : $header;
-    }
-
-    /**
-     * Ensure a string is valid UTF-8, converting from ISO-8859-1 if needed.
-     *
-     * Old Spotnet spots use raw ISO-8859-1 in Subject and From without any
-     * MIME encoding. mb_check_encoding detects this and mb_convert_encoding
-     * promotes the bytes to their correct UTF-8 counterparts.
-     */
-    private function toUtf8(string $str): string
-    {
-        if (mb_check_encoding($str, 'UTF-8')) {
-            return $str;
-        }
-
-        return mb_convert_encoding($str, 'UTF-8', 'ISO-8859-1');
-    }
-
-    /**
      * Parse a spot from article headers
      *
      * @param  array<string, string>  $headers  Article headers
@@ -336,6 +264,78 @@ class SpotParser
         }
 
         return $spot;
+    }
+
+    /**
+     * Parse the subcategory substring from a Spotnet From domain first field.
+     *
+     * Format: letter+digits pairs (e.g. "a11b03c04d44z02" or "a9b4c0d5").
+     * Returns canonical codes prefixed with the 2-digit head category
+     * (e.g. ["01a11", "01b03", "01c04", ...]).
+     *
+     * @return array<string>
+     */
+    private function parseSubcatString(string $str, string $mainCategoryCode): array
+    {
+        if ($str === '') {
+            return [];
+        }
+
+        $valid = ['a', 'b', 'c', 'd', 'z'];
+        $subs = [];
+        $tmp = '';
+        $str = strtolower($str) . '!'; // sentinel to flush the last entry
+
+        for ($i = 0, $len = \strlen($str); $i < $len; $i++) {
+            $ch = $str[$i];
+
+            if (! is_numeric($ch) && $tmp !== '') {
+                if (\in_array($tmp[0], $valid, true)) {
+                    $normalized = $this->normalizeSubcategoryCode($tmp, $mainCategoryCode);
+                    if ($normalized !== null) {
+                        $subs[] = $normalized;
+                    }
+                }
+
+                $tmp = '';
+            }
+
+            if (\in_array($ch, $valid, true) || is_numeric($ch)) {
+                $tmp .= $ch;
+            }
+        }
+
+        return array_values(array_unique($subs));
+    }
+
+    /**
+     * Decode RFC 2047 MIME-encoded header words (=?charset?B?...?=).
+     */
+    private function decodeMimeHeader(string $header): string
+    {
+        if (! str_contains($header, '=?')) {
+            return $header;
+        }
+
+        $decoded = iconv_mime_decode($header, ICONV_MIME_DECODE_CONTINUE_ON_ERROR, 'UTF-8');
+
+        return $decoded !== false ? $decoded : $header;
+    }
+
+    /**
+     * Ensure a string is valid UTF-8, converting from ISO-8859-1 if needed.
+     *
+     * Old Spotnet spots use raw ISO-8859-1 in Subject and From without any
+     * MIME encoding. mb_check_encoding detects this and mb_convert_encoding
+     * promotes the bytes to their correct UTF-8 counterparts.
+     */
+    private function toUtf8(string $str): string
+    {
+        if (mb_check_encoding($str, 'UTF-8')) {
+            return $str;
+        }
+
+        return mb_convert_encoding($str, 'UTF-8', 'ISO-8859-1');
     }
 
     /**
@@ -463,7 +463,7 @@ class SpotParser
         }
 
         $poster = trim(substr($from, 0, $ltPos));
-        $signedPayload = trim($rawSubject).substr($domain, 0, $lastSeparator).$poster;
+        $signedPayload = trim($rawSubject) . substr($domain, 0, $lastSeparator) . $poster;
         $trustedKey = config('spotengine.moderation.public_keys.2');
         $isGlobalModerator = \is_array($trustedKey)
             && isset($trustedKey['modulus'], $trustedKey['exponent'])
@@ -552,17 +552,17 @@ class SpotParser
         }
 
         if (preg_match('/^([a-z])(\d{1,2})$/', $subcategoryCode, $matches) === 1) {
-            return $mainCategoryCode.$matches[1].sprintf('%02d', (int) $matches[2]);
+            return $mainCategoryCode . $matches[1] . sprintf('%02d', (int) $matches[2]);
         }
 
         if (preg_match('/^(\d{2})([a-z])(\d{1,2})$/', $subcategoryCode, $matches) === 1) {
-            return $matches[1].$matches[2].sprintf('%02d', (int) $matches[3]);
+            return $matches[1] . $matches[2] . sprintf('%02d', (int) $matches[3]);
         }
 
         if (preg_match('/^z([0-3])([a-z])(\d{1,2})$/', $subcategoryCode, $matches) === 1) {
             $normalizedMain = str_pad((string) (((int) $matches[1]) + 1), 2, '0', STR_PAD_LEFT);
 
-            return $normalizedMain.$matches[2].sprintf('%02d', (int) $matches[3]);
+            return $normalizedMain . $matches[2] . sprintf('%02d', (int) $matches[3]);
         }
 
         return null;

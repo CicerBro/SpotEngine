@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 beforeEach(function () {
-    $this->nzbCachePath = storage_path('app/cache/test-prune-nzb-'.uniqid());
-    $this->imageCachePath = storage_path('app/cache/test-prune-img-'.uniqid());
+    $this->nzbCachePath = storage_path('app/cache/test-prune-nzb-' . uniqid());
+    $this->imageCachePath = storage_path('app/cache/test-prune-img-' . uniqid());
     mkdir($this->nzbCachePath, 0755, true);
     mkdir($this->imageCachePath, 0755, true);
     config(['spotengine.cache.nzb_path' => $this->nzbCachePath]);
@@ -30,7 +30,7 @@ afterEach(function () {
 });
 
 test('prune-cache skips pruning when retention is 0', function () {
-    $file = $this->cachePath.'/old-file.nzb';
+    $file = $this->cachePath . '/old-file.nzb';
     file_put_contents($file, 'data');
     touch($file, time() - 86400 * 60);
 
@@ -43,14 +43,14 @@ test('prune-cache skips pruning when retention is 0', function () {
 });
 
 test('prune-cache deletes old files in nested directories', function () {
-    $nestedDir = $this->cachePath.'/a/3';
+    $nestedDir = $this->cachePath . '/a/3';
     mkdir($nestedDir, 0755, true);
 
-    $oldFile = $nestedDir.'/a3f2abc9.nzb';
+    $oldFile = $nestedDir . '/a3f2abc9.nzb';
     file_put_contents($oldFile, 'old-data');
     touch($oldFile, time() - 86400 * 60);
 
-    $newFile = $nestedDir.'/b4e5cdef.nzb';
+    $newFile = $nestedDir . '/b4e5cdef.nzb';
     file_put_contents($newFile, 'new-data');
 
     $this->artisan('spot:prune-cache', ['--nzb-days' => 30, '--image-days' => 30])
@@ -61,10 +61,10 @@ test('prune-cache deletes old files in nested directories', function () {
 });
 
 test('prune-cache removes empty nested directories after pruning', function () {
-    $nestedDir = $this->cachePath.'/f/a';
+    $nestedDir = $this->cachePath . '/f/a';
     mkdir($nestedDir, 0755, true);
 
-    $oldFile = $nestedDir.'/fa1234.nzb';
+    $oldFile = $nestedDir . '/fa1234.nzb';
     file_put_contents($oldFile, 'data');
     touch($oldFile, time() - 86400 * 60);
 
@@ -72,12 +72,12 @@ test('prune-cache removes empty nested directories after pruning', function () {
         ->assertSuccessful();
 
     expect(is_dir($nestedDir))->toBeFalse();
-    expect(is_dir($this->cachePath.'/f'))->toBeFalse();
+    expect(is_dir($this->cachePath . '/f'))->toBeFalse();
     expect(is_dir($this->cachePath))->toBeTrue();
 });
 
 test('prune-cache still handles flat files at root level', function () {
-    $oldFile = $this->cachePath.'/legacy-flat-file.nzb';
+    $oldFile = $this->cachePath . '/legacy-flat-file.nzb';
     file_put_contents($oldFile, 'old-data');
     touch($oldFile, time() - 86400 * 60);
 
@@ -89,27 +89,27 @@ test('prune-cache still handles flat files at root level', function () {
 
 test('clear deletes all files regardless of age when confirmed', function () {
     // Create nested files in both cache directories
-    $nzbDir = $this->nzbCachePath.'/a/3';
+    $nzbDir = $this->nzbCachePath . '/a/3';
     mkdir($nzbDir, 0755, true);
-    file_put_contents($nzbDir.'/recent.nzb', 'data');
-    file_put_contents($nzbDir.'/old.nzb', 'data');
+    file_put_contents($nzbDir . '/recent.nzb', 'data');
+    file_put_contents($nzbDir . '/old.nzb', 'data');
 
-    $imgDir = $this->imageCachePath.'/b/4';
+    $imgDir = $this->imageCachePath . '/b/4';
     mkdir($imgDir, 0755, true);
-    file_put_contents($imgDir.'/recent.img', 'data');
+    file_put_contents($imgDir . '/recent.img', 'data');
 
     $this->artisan('spot:prune-cache', ['--clear' => true])
         ->expectsConfirmation('Are you sure you want to clear the entire cache?', 'yes')
         ->assertSuccessful()
         ->expectsOutputToContain('Cache cleared');
 
-    expect(file_exists($nzbDir.'/recent.nzb'))->toBeFalse();
-    expect(file_exists($nzbDir.'/old.nzb'))->toBeFalse();
-    expect(file_exists($imgDir.'/recent.img'))->toBeFalse();
+    expect(file_exists($nzbDir . '/recent.nzb'))->toBeFalse();
+    expect(file_exists($nzbDir . '/old.nzb'))->toBeFalse();
+    expect(file_exists($imgDir . '/recent.img'))->toBeFalse();
 });
 
 test('clear aborts when user declines confirmation', function () {
-    $file = $this->nzbCachePath.'/keep-me.nzb';
+    $file = $this->nzbCachePath . '/keep-me.nzb';
     file_put_contents($file, 'data');
 
     $this->artisan('spot:prune-cache', ['--clear' => true])

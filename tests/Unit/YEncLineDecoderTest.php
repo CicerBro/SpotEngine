@@ -11,7 +11,7 @@ test('all byte values are decoded in bulk', function () {
     foreach ($bytes as $byte) {
         $encodedByte = ($byte + 42) & 0xFF;
         $encoded .= in_array($encodedByte, [0, 9, 10, 13, 46, 61], true)
-            ? '='.chr(($encodedByte + 64) & 0xFF)
+            ? '=' . chr(($encodedByte + 64) & 0xFF)
             : chr($encodedByte);
     }
 

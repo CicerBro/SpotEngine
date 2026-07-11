@@ -193,14 +193,14 @@ class ManticoreSearchDriver implements SearchDriver
     public function ensureIndex(): void
     {
         $this->rawSql(
-            "CREATE TABLE IF NOT EXISTS `{$this->index}` (".
-            'title text, description text, category int, subcategories multi64, '.
-            'posted_at timestamp, file_size bigint, has_nzb bool'.
+            "CREATE TABLE IF NOT EXISTS `{$this->index}` (" .
+            'title text, description text, category int, subcategories multi64, ' .
+            'posted_at timestamp, file_size bigint, has_nzb bool' .
             ") min_infix_len='2'",
         );
 
         $this->rawSql(
-            'SELECT id, title, description, category, subcategories, posted_at, file_size, has_nzb '.
+            'SELECT id, title, description, category, subcategories, posted_at, file_size, has_nzb ' .
             "FROM `{$this->index}` LIMIT 0",
         );
     }
@@ -395,7 +395,7 @@ class ManticoreSearchDriver implements SearchDriver
         $ids = Spot::query()
             ->where(function (Builder $metadataQuery) use ($terms): void {
                 foreach ($terms as $term) {
-                    $pattern = '%'.$term.'%';
+                    $pattern = '%' . $term . '%';
 
                     $metadataQuery->orWhere(function (Builder $termQuery) use ($pattern): void {
                         $termQuery
@@ -489,7 +489,7 @@ class ManticoreSearchDriver implements SearchDriver
         }
 
         if (isset($decoded['error'])) {
-            throw new ManticoreSearchException('Manticore query failed: '.(string) $decoded['error']);
+            throw new ManticoreSearchException('Manticore query failed: ' . (string) $decoded['error']);
         }
 
         return $decoded;
@@ -548,7 +548,7 @@ class ManticoreSearchDriver implements SearchDriver
                 ->acceptJson()
                 ->connectTimeout($this->timeout)
                 ->timeout($this->timeout)
-                ->withBody(implode("\n", $lines)."\n", 'application/x-ndjson')
+                ->withBody(implode("\n", $lines) . "\n", 'application/x-ndjson')
                 ->post('/bulk');
         } catch (ConnectionException $exception) {
             throw new ManticoreSearchException(

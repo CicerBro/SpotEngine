@@ -65,7 +65,7 @@ class SigningService
         }
 
         $der = $this->buildSubjectPublicKeyInfo($n, $e);
-        $pem = "-----BEGIN PUBLIC KEY-----\n".chunk_split(base64_encode($der), 64, "\n")."-----END PUBLIC KEY-----\n";
+        $pem = "-----BEGIN PUBLIC KEY-----\n" . chunk_split(base64_encode($der), 64, "\n") . "-----END PUBLIC KEY-----\n";
 
         return openssl_pkey_get_public($pem);
     }
@@ -92,15 +92,15 @@ class SigningService
     {
         // Prepend 0x00 if the high bit is set to keep the INTEGER non-negative.
         if (ord($n[0]) > 0x7F) {
-            $n = "\x00".$n;
+            $n = "\x00" . $n;
         }
 
         if (ord($e[0]) > 0x7F) {
-            $e = "\x00".$e;
+            $e = "\x00" . $e;
         }
 
         $rsaPublicKey = $this->derSequence(
-            $this->derTag(0x02, $n).$this->derTag(0x02, $e)
+            $this->derTag(0x02, $n) . $this->derTag(0x02, $e)
         );
 
         // OID for rsaEncryption (1.2.840.113549.1.1.1) followed by NULL parameters.
@@ -108,9 +108,9 @@ class SigningService
         $algorithmId = $this->derSequence($oid);
 
         // BIT STRING: leading 0x00 byte indicates zero unused bits.
-        $bitString = $this->derTag(0x03, "\x00".$rsaPublicKey);
+        $bitString = $this->derTag(0x03, "\x00" . $rsaPublicKey);
 
-        return $this->derSequence($algorithmId.$bitString);
+        return $this->derSequence($algorithmId . $bitString);
     }
 
     private function derSequence(string $content): string
@@ -120,7 +120,7 @@ class SigningService
 
     private function derTag(int $tag, string $content): string
     {
-        return chr($tag).$this->derLength(strlen($content)).$content;
+        return chr($tag) . $this->derLength(strlen($content)) . $content;
     }
 
     private function derLength(int $length): string
@@ -130,9 +130,9 @@ class SigningService
         }
 
         if ($length < 0x100) {
-            return "\x81".chr($length);
+            return "\x81" . chr($length);
         }
 
-        return "\x82".chr($length >> 8).chr($length & 0xFF);
+        return "\x82" . chr($length >> 8) . chr($length & 0xFF);
     }
 }

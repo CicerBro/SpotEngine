@@ -59,7 +59,7 @@ test('home page renders spots as table rows with lazy hover images', function ()
     $response->assertSee('Loading more spots');
     // Image URL is in Alpine.js hover attribute, not an eager <img> tag
     $response->assertSee(route('spots.image', $spot));
-    $response->assertDontSee('<img src="'.route('spots.image', $spot).'"', false);
+    $response->assertDontSee('<img src="' . route('spots.image', $spot) . '"', false);
 });
 
 test('home page orders equal timestamps deterministically for cursor pagination', function () {
@@ -84,7 +84,7 @@ test('home page returns the next cursor batch as rendered rows', function () {
     Spot::factory()
         ->count(12)
         ->sequence(fn ($sequence) => [
-            'title' => 'Cursor Spot '.$sequence->index,
+            'title' => 'Cursor Spot ' . $sequence->index,
             'spot_posted_at' => now()->subMinutes($sequence->index),
         ])
         ->create();

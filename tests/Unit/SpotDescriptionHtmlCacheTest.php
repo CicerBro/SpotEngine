@@ -7,11 +7,11 @@ use App\Services\BbCodeParsingService;
 
 afterEach(function () {
     app()->forgetInstance(BbCodeParsingService::class);
-    \Mockery::close();
+    Mockery::close();
 });
 
 test('description_html accessor parses once per description value', function () {
-    $parser = \Mockery::mock(BbCodeParsingService::class);
+    $parser = Mockery::mock(BbCodeParsingService::class);
     $parser->shouldReceive('parse')
         ->once()
         ->with('[b]cached[/b]')
@@ -26,7 +26,7 @@ test('description_html accessor parses once per description value', function () 
 });
 
 test('description_html accessor cache invalidates when description changes', function () {
-    $parser = \Mockery::mock(BbCodeParsingService::class);
+    $parser = Mockery::mock(BbCodeParsingService::class);
     $parser->shouldReceive('parse')->once()->with('first')->andReturn('<strong>first</strong>');
     $parser->shouldReceive('parse')->once()->with('second')->andReturn('<strong>second</strong>');
 
