@@ -63,6 +63,10 @@ class NzbGenerator
             if ($data === '' || $data === '0') {
                 throw new \RuntimeException('yEnc decoding failed - empty result');
             }
+        } else {
+            // Spotnet escapes real line breaks before posting, so remaining
+            // line breaks are NNTP transport framing and corrupt compressed data.
+            $data = str_replace(["\r", "\n"], '', $data);
         }
 
         // Step 2: Strip any trailing CRLF that might have been added
