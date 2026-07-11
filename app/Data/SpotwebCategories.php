@@ -4,45 +4,78 @@ declare(strict_types=1);
 
 namespace App\Data;
 
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Str;
+use RuntimeException;
 
 /**
  * Spotweb category definitions.
  *
- * Mirrors structure from Spotweb SpotCategories.php:
- * https://github.com/spotweb/spotweb/blob/develop/lib/SpotCategories.php
+ * Fetches and parses structure from Spotweb SpotCategories.php:
+ *
+ * @see https://github.com/spotweb/spotweb/blob/develop/lib/SpotCategories.php
  *
  * Used by spot:categories:update to sync categories to the database.
  */
 class SpotwebCategories
 {
-    private const array HEAD_NAMES = [
-        0 => 'Image',
-        1 => 'Sound',
-        2 => 'Games',
-        3 => 'Applications',
-    ];
+    public const string SOURCE_URL = 'https://raw.githubusercontent.com/spotweb/spotweb/develop/lib/SpotCategories.php';
 
-    private const array SUBCAT_DESCRIPTIONS = [
-        0 => ['a' => 'Format', 'b' => 'Source', 'c' => 'Language', 'd' => 'Genre', 'z' => 'Type'],
-        1 => ['a' => 'Format', 'b' => 'Source', 'c' => 'Bitrate', 'd' => 'Genre', 'z' => 'Type'],
-        2 => ['a' => 'Platform', 'b' => 'Format', 'c' => 'Genre', 'z' => 'Type'],
-        3 => ['a' => 'Platform', 'b' => 'Genre', 'z' => 'Type'],
-    ];
+    private const int FETCH_TIMEOUT_SECONDS = 10;
+
+    private const int FETCH_CONNECT_TIMEOUT_SECONDS = 3;
+
+    /**
+     * Fetch the latest Spotweb definitions and flatten them into category rows.
+     *
+     * @return array<int, array{code: string, parent_code: string|null, name: string, slug: string, type: string|null, sort_order: int}>
+     */
+    public static function fetchCategoryRows(?string $sourceUrl = null): array
+    {
+        $response = Http::retry([100, 500, 1000])
+            ->timeout(self::FETCH_TIMEOUT_SECONDS)
+            ->connectTimeout(self::FETCH_CONNECT_TIMEOUT_SECONDS)
+            ->get($sourceUrl ?? self::SOURCE_URL)
+            ->throw();
+
+        return self::fromSpotCategoriesPhp($response->body());
+    }
+
+    /**
+     * Parse Spotweb's PHP category file and flatten it into category rows.
+     *
+     * @return array<int, array{code: string, parent_code: string|null, name: string, slug: string, type: string|null, sort_order: int}>
+     */
+    public static function fromSpotCategoriesPhp(string $contents): array
+    {
+        /** @var array<int, string> $headNames */
+        $headNames = self::extractStaticArray($contents, '_head_categories');
+
+        /** @var array<int, array<string, string>> $subcatDescriptions */
+        $subcatDescriptions = self::extractStaticArray($contents, '_subcat_descriptions');
+
+        /** @var array<int, array<string, array<int|string, mixed>>> $categories */
+        $categories = self::extractStaticArray($contents, '_categories');
+
+        return self::toCategoryRows($headNames, $subcatDescriptions, $categories);
+    }
 
     /**
      * Flatten Spotweb categories into rows for our categories table.
      *
+     * @param  array<int, string>  $headNames
+     * @param  array<int, array<string, string>>  $subcatDescriptions
+     * @param  array<int, array<string, array<int|string, mixed>>>  $categories
      * @return array<int, array{code: string, parent_code: string|null, name: string, slug: string, type: string|null, sort_order: int}>
      */
-    public static function toCategoryRows(): array
+    public static function toCategoryRows(array $headNames, array $subcatDescriptions, array $categories): array
     {
         $rows = [];
         $sortOrder = 1;
         $usedSlugs = [];
 
-        foreach (self::HEAD_NAMES as $hcat => $headName) {
-            $code = self::headCode($hcat);
+        foreach ($headNames as $hcat => $headName) {
+            $code = self::headCode((int) $hcat);
             $slug = self::uniqueSlug(Str::slug($headName), $usedSlugs);
             $rows[] = [
                 'code' => $code,
@@ -53,22 +86,22 @@ class SpotwebCategories
                 'sort_order' => $sortOrder++,
             ];
 
-            $subcats = self::getSubcategories($hcat);
             $subcatSort = 1;
-            foreach ($subcats as $letter => $items) {
-                $type = self::SUBCAT_DESCRIPTIONS[$hcat][$letter] ?? null;
+            foreach ($categories[(int) $hcat] ?? [] as $letter => $items) {
+                $type = $subcatDescriptions[(int) $hcat][$letter] ?? null;
                 $typeSlug = $type !== null ? self::descriptionToType($type) : null;
 
-                foreach ($items as $index => $name) {
+                foreach ($items as $index => $value) {
                     $numIndex = is_numeric($index) ? (int) $index : 0;
-                    $subCode = $code . $letter . \sprintf('%02d', $numIndex);
+                    $name = self::categoryName($value);
                     $displayName = ($name === '' || $name === '-') ? '-' : $name;
                     $slug = self::uniqueSlug(
                         ($name === '' || $name === '-') ? $letter . \sprintf('%02d', $numIndex) : Str::slug($name),
                         $usedSlugs
                     );
+
                     $rows[] = [
-                        'code' => $subCode,
+                        'code' => $code . $letter . \sprintf('%02d', $numIndex),
                         'parent_code' => $code,
                         'name' => $displayName,
                         'slug' => $slug,
@@ -80,6 +113,233 @@ class SpotwebCategories
         }
 
         return $rows;
+    }
+
+    /**
+     * @return array<mixed>
+     */
+    private static function extractStaticArray(string $contents, string $property): array
+    {
+        if (! preg_match('/\\$' . preg_quote($property, '/') . '\\s*=\\s*\\[/m', $contents, $matches, PREG_OFFSET_CAPTURE)) {
+            throw new RuntimeException("Spotweb category property [{$property}] was not found.");
+        }
+
+        $literalStart = $matches[0][1] + strlen($matches[0][0]) - 1;
+        $array = self::parseArrayLiteral(self::extractBalancedArrayLiteral($contents, $literalStart));
+
+        if (! \is_array($array)) {
+            throw new RuntimeException("Spotweb category property [{$property}] is not an array.");
+        }
+
+        return $array;
+    }
+
+    private static function extractBalancedArrayLiteral(string $contents, int $start): string
+    {
+        if (($contents[$start] ?? null) !== '[') {
+            throw new RuntimeException('Spotweb category array literal does not start with an opening bracket.');
+        }
+
+        $depth = 0;
+        $quote = null;
+        $length = strlen($contents);
+
+        for ($position = $start; $position < $length; $position++) {
+            $char = $contents[$position];
+
+            if ($quote !== null) {
+                if ($char === '\\') {
+                    $position++;
+
+                    continue;
+                }
+
+                if ($char === $quote) {
+                    $quote = null;
+                }
+
+                continue;
+            }
+
+            if ($char === '\'' || $char === '"') {
+                $quote = $char;
+
+                continue;
+            }
+
+            if ($char === '[') {
+                $depth++;
+
+                continue;
+            }
+
+            if ($char === ']') {
+                $depth--;
+
+                if ($depth === 0) {
+                    return substr($contents, $start, $position - $start + 1);
+                }
+            }
+        }
+
+        throw new RuntimeException('Spotweb category array literal was not closed.');
+    }
+
+    private static function parseArrayLiteral(string $literal): mixed
+    {
+        $tokens = self::arrayLiteralTokens($literal);
+        $index = 0;
+        $value = self::parseArrayValue($tokens, $index);
+
+        if ($index !== \count($tokens)) {
+            throw new RuntimeException('Spotweb category array contains unexpected trailing tokens.');
+        }
+
+        return $value;
+    }
+
+    /**
+     * @return list<array{id: int|null, text: string}>
+     */
+    private static function arrayLiteralTokens(string $literal): array
+    {
+        return array_values(array_filter(
+            array_map(
+                fn (array|string $token): array => \is_array($token)
+                    ? ['id' => $token[0], 'text' => $token[1]]
+                    : ['id' => null, 'text' => $token],
+                token_get_all('<?php ' . $literal)
+            ),
+            fn (array $token): bool => ! \in_array($token['id'], [T_OPEN_TAG, T_WHITESPACE, T_COMMENT, T_DOC_COMMENT], true)
+        ));
+    }
+
+    /**
+     * @param  list<array{id: int|null, text: string}>  $tokens
+     */
+    private static function parseArrayValue(array $tokens, int &$index): mixed
+    {
+        $token = $tokens[$index] ?? null;
+
+        if ($token === null) {
+            throw new RuntimeException('Spotweb category array ended unexpectedly.');
+        }
+
+        if ($token['text'] === '[') {
+            return self::parsePhpArray($tokens, $index);
+        }
+
+        $index++;
+
+        return match ($token['id']) {
+            T_CONSTANT_ENCAPSED_STRING => self::parsePhpString($token['text']),
+            T_LNUMBER => (int) $token['text'],
+            T_DNUMBER => (float) $token['text'],
+            T_STRING => self::parsePhpConstant($token['text']),
+            default => throw new RuntimeException("Unsupported Spotweb category token [{$token['text']}]."),
+        };
+    }
+
+    /**
+     * @param  list<array{id: int|null, text: string}>  $tokens
+     * @return array<mixed>
+     */
+    private static function parsePhpArray(array $tokens, int &$index): array
+    {
+        self::expectToken($tokens, $index, '[');
+
+        $array = [];
+
+        while (! self::nextTokenIs($tokens, $index, ']')) {
+            if (self::nextTokenIs($tokens, $index, ',')) {
+                $index++;
+
+                continue;
+            }
+
+            $keyOrValue = self::parseArrayValue($tokens, $index);
+
+            if (self::nextTokenIs($tokens, $index, '=>')) {
+                $index++;
+
+                if (! \is_int($keyOrValue) && ! \is_string($keyOrValue)) {
+                    throw new RuntimeException('Spotweb category array key must be a string or integer.');
+                }
+
+                $array[$keyOrValue] = self::parseArrayValue($tokens, $index);
+            } else {
+                $array[] = $keyOrValue;
+            }
+
+            if (self::nextTokenIs($tokens, $index, ',')) {
+                $index++;
+
+                continue;
+            }
+
+            if (! self::nextTokenIs($tokens, $index, ']')) {
+                $text = $tokens[$index]['text'] ?? 'EOF';
+
+                throw new RuntimeException("Expected comma or closing bracket in Spotweb category array, got [{$text}].");
+            }
+        }
+
+        self::expectToken($tokens, $index, ']');
+
+        return $array;
+    }
+
+    /**
+     * @param  list<array{id: int|null, text: string}>  $tokens
+     */
+    private static function expectToken(array $tokens, int &$index, string $expected): void
+    {
+        if (! self::nextTokenIs($tokens, $index, $expected)) {
+            $text = $tokens[$index]['text'] ?? 'EOF';
+
+            throw new RuntimeException("Expected [{$expected}] in Spotweb category array, got [{$text}].");
+        }
+
+        $index++;
+    }
+
+    /**
+     * @param  list<array{id: int|null, text: string}>  $tokens
+     */
+    private static function nextTokenIs(array $tokens, int $index, string $expected): bool
+    {
+        return ($tokens[$index]['text'] ?? null) === $expected;
+    }
+
+    private static function parsePhpString(string $literal): string
+    {
+        $quote = $literal[0] ?? '';
+        $value = substr($literal, 1, -1);
+
+        if ($quote === '\'') {
+            return str_replace(['\\\\', '\\\''], ['\\', '\''], $value);
+        }
+
+        return stripcslashes($value);
+    }
+
+    private static function parsePhpConstant(string $constant): mixed
+    {
+        return match (strtolower($constant)) {
+            'false' => false,
+            'null' => null,
+            'true' => true,
+            default => throw new RuntimeException("Unsupported Spotweb category constant [{$constant}]."),
+        };
+    }
+
+    private static function categoryName(mixed $value): string
+    {
+        if (\is_array($value)) {
+            return (string) ($value[0] ?? '');
+        }
+
+        return (string) $value;
     }
 
     /**
@@ -108,167 +368,5 @@ class SpotwebCategories
         $used[$slug] = true;
 
         return $slug;
-    }
-
-    /**
-     * Subcategory definitions per head category.
-     * Structure: [letter => [index => name, ...], ...]
-     *
-     * @return array<string, array<int|string, string>>
-     */
-    private static function getSubcategories(int $hcat): array
-    {
-        $out = [];
-        $data = self::categoriesData();
-
-        if (! isset($data[$hcat])) {
-            return $out;
-        }
-
-        foreach ($data[$hcat] as $letter => $indices) {
-            $names = [];
-            foreach ($indices as $idx => $value) {
-                $name = \is_array($value) ? (string) (array_first($value) ?? '') : (string) $value;
-                $numIdx = is_numeric($idx) ? (int) $idx : 0;
-                $names[$numIdx] = $name;
-            }
-            $out[$letter] = $names;
-        }
-
-        return $out;
-    }
-
-    /**
-    /**
-     * Returns the full Spotweb $_categories structure.
-     *
-     * The structure is:
-     * - head: integer key (the main or 'head' category, e.g. 0=Video, 1=Audio, etc.)
-     *   - letter: string key representing a subcategory group (e.g. 'a', 'b', 'c', 'd', 'z')
-     *     - index: integer or string key within the letter group (e.g. 0, 1, 2, ...)
-     *       - value: array with the subcategory name as the first element (sometimes with additional data), or just a string (category name)
-     *
-     * Example: $categories[0]['a'][4][0] == "HD other"
-     *
-     * Meaning of keys:
-     * - head: top-level category (int)
-     * - letter: grouped subcategory type (string, e.g. 'a', 'b', etc., defined by Spotweb)
-     * - index: subcategory index within the letter (int|string)
-     * - value: subcategory name or array of subcategory data (mixed)
-     *
-     * @see https://github.com/spotweb/spotweb/blob/develop/lib/SpotCategories.php
-     *
-     * @return array<int, array<string, array<int|string, mixed>>>
-     */
-    private static function categoriesData(): array
-    {
-        return [
-            0 => [
-                'a' => [
-                    0 => ['DivX'], 1 => ['WMV'], 2 => ['MPG'], 3 => ['DVD5'], 4 => ['HD other'], 5 => ['ePub'],
-                    6 => ['Blu-ray'], 7 => ['HD-DVD'], 8 => ['WMVHD'], 9 => ['x264'], 10 => ['DVD9'],
-                    11 => ['PDF'], 12 => ['Bitmap'], 13 => ['Vector'], 14 => ['3D'], 15 => ['UHD'],
-                ],
-                'b' => [
-                    0 => ['CAM'], 1 => ['(S)VCD'], 2 => ['Promo'], 3 => ['Retail'], 4 => ['TV'], 5 => ['-'],
-                    6 => ['Satellite'], 7 => ['R5'], 8 => ['Telecine'], 9 => ['Telesync'], 10 => ['Scan'],
-                    11 => ['WEB-DL'], 12 => ['WEBRip'], 13 => ['HDRip'],
-                ],
-                'c' => [
-                    0 => ['No subtitles'], 1 => ['Dutch subtitles (external)'], 2 => ['Dutch subtitles (builtin)'],
-                    3 => ['English subtitles (external)'], 4 => ['English subtitles (builtin)'], 5 => ['-'],
-                    6 => ['Dutch subtitles (available)'], 7 => ['English subtitles (available)'], 8 => ['-'], 9 => ['-'],
-                    10 => ['English audio/written'], 11 => ['Dutch audio/written'], 12 => ['German audio/written'],
-                    13 => ['French audio/written'], 14 => ['Spanish audio/written'], 15 => ['Asian audio/written'],
-                ],
-                'd' => [
-                    0 => ['Action'], 1 => ['Adventure'], 2 => ['Animation'], 3 => ['Cabaret'], 4 => ['Comedy'],
-                    5 => ['Crime'], 6 => ['Documentary'], 7 => ['Drama'], 8 => ['Family'], 9 => ['Fantasy'],
-                    10 => ['Arthouse'], 11 => ['Television'], 12 => ['Horror'], 13 => ['Music'], 14 => ['Musical'],
-                    15 => ['Mystery'], 16 => ['Romance'], 17 => ['Science Fiction'], 18 => ['Sport'],
-                    19 => ['Short movie'], 20 => ['Thriller'], 21 => ['War'], 22 => ['Western'],
-                    23 => ['Erotica (hetero)'], 24 => ['Erotica (gay male)'], 25 => ['Erotica (gay female)'],
-                    26 => ['Erotica (bi)'], 27 => ['-'], 28 => ['Asian'], 29 => ['Anime'], 30 => ['Cover'],
-                    31 => ['Comicbook'], 32 => ['Cartoons'], 33 => ['Youth'], 34 => ['Business'], 35 => ['Computer'],
-                    36 => ['Hobby'], 37 => ['Cooking'], 38 => ['Handwork'], 39 => ['Craftwork'], 40 => ['Health'],
-                    41 => ['History'], 42 => ['Psychology'], 43 => ['Newspaper'], 44 => ['Magazine'],
-                    45 => ['Science'], 46 => ['Female'], 47 => ['Religion'], 48 => ['Roman'], 49 => ['Biography'],
-                    50 => ['Detective'], 51 => ['Animals'], 52 => ['Humor'], 53 => ['Travel'], 54 => ['True story'],
-                    55 => ['Non-fiction'], 56 => ['Politics'], 57 => ['Poetry'], 58 => ['Fairy tale'],
-                    59 => ['Technical'], 60 => ['Art'],
-                    72 => ['Bi'], 73 => ['Lesbian'], 74 => ['Homo'], 75 => ['Hetero'], 76 => ['Amature'],
-                    77 => ['Group'], 78 => ['POV'], 79 => ['Solo'], 80 => ['Young'], 81 => ['Soft'],
-                    82 => ['Fetish'], 83 => ['Old'], 84 => ['Fat'], 85 => ['SM'], 86 => ['Rough'],
-                    87 => ['Dark'], 88 => ['Hentai'], 89 => ['Outside'],
-                ],
-                'z' => [0 => 'Movie', 1 => 'Series', 2 => 'Book', 3 => 'Erotica', 4 => 'Picture'],
-            ],
-            1 => [
-                'a' => [
-                    0 => ['MP3'], 1 => ['WMA'], 2 => ['WAV'], 3 => ['OGG'], 4 => ['EAC'],
-                    5 => ['DTS'], 6 => ['AAC'], 7 => ['APE'], 8 => ['FLAC'],
-                ],
-                'b' => [
-                    0 => ['CD'], 1 => ['Radio'], 2 => ['Compilation'], 3 => ['DVD'], 4 => ['Other'],
-                    5 => ['Vinyl'], 6 => ['Stream'],
-                ],
-                'c' => [
-                    0 => ['Variable'], 1 => ['< 96kbit'], 2 => ['96kbit'], 3 => ['128kbit'], 4 => ['160kbit'],
-                    5 => ['192kbit'], 6 => ['256kbit'], 7 => ['320kbit'], 8 => ['Lossless'], 9 => ['Other'],
-                ],
-                'd' => [
-                    0 => ['Blues'], 1 => ['Compilation'], 2 => ['Cabaret'], 3 => ['Dance'], 4 => ['Diverse'],
-                    5 => ['Hardcore'], 6 => ['World'], 7 => ['Jazz'], 8 => ['Youth'], 9 => ['Classical'],
-                    10 => ['Kleinkunst'], 11 => ['Dutch'], 12 => ['New Age'], 13 => ['Pop'], 14 => ['RnB'],
-                    15 => ['Hiphop'], 16 => ['Reggae'], 17 => ['Religious'], 18 => ['Rock'],
-                    19 => ['Soundtracks'], 20 => ['Other'], 21 => ['Hardstyle'], 22 => ['Asian'],
-                    23 => ['Disco'], 24 => ['Classics'], 25 => ['Metal'], 26 => ['Country'], 27 => ['Dubstep'],
-                    28 => ['Nederhop'], 29 => ['DnB'], 30 => ['Electro'], 31 => ['Folk'], 32 => ['Soul'],
-                    33 => ['Trance'], 34 => ['Balkan'], 35 => ['Techno'], 36 => ['Ambient'], 37 => ['Latin'],
-                    38 => ['Live'],
-                ],
-                'z' => [0 => 'Album', 1 => 'Liveset', 2 => 'Podcast', 3 => 'Audiobook'],
-            ],
-            2 => [
-                'a' => [
-                    0 => ['Windows'], 1 => ['Macintosh'], 2 => ['Linux'], 3 => ['Playstation'],
-                    4 => ['Playstation 2'], 5 => ['PSP'], 6 => ['Xbox'], 7 => ['Xbox 360'],
-                    8 => ['Gameboy Advance'], 9 => ['Gamecube'], 10 => ['Nintendo DS'], 11 => ['Nintento Wii'],
-                    12 => ['Playstation 3'], 13 => ['Windows Phone'], 14 => ['iOS'], 15 => ['Android'],
-                    16 => ['Nintendo 3DS'], 17 => ['Playstation 4'], 18 => ['XBox 1'],
-                ],
-                'b' => [
-                    0 => ['ISO'], 1 => ['Rip'], 2 => ['Retail'], 3 => ['DLC'], 4 => [''], 5 => ['Patch'],
-                    6 => ['Crack'],
-                ],
-                'c' => [
-                    0 => ['Action'], 1 => ['Adventure'], 2 => ['Strategy'], 3 => ['Roleplaying'],
-                    4 => ['Simulation'], 5 => ['Race'], 6 => ['Flying'], 7 => ['Shooter'], 8 => ['Platform'],
-                    9 => ['Sport'], 10 => ['Child/youth'], 11 => ['Puzzle'], 12 => ['Other'],
-                    13 => ['Boardgame'], 14 => ['Cards'], 15 => ['Education'], 16 => ['Music'],
-                    17 => ['Family'],
-                ],
-                'z' => ['z' => 'everything'],
-            ],
-            3 => [
-                'a' => [
-                    0 => ['Windows'], 1 => ['Macintosh'], 2 => ['Linux'], 3 => ['OS/2'],
-                    4 => ['Windows Phone'], 5 => ['Navigation systems'], 6 => ['iOS'], 7 => ['Android'],
-                ],
-                'b' => [
-                    0 => ['Audio'], 1 => ['Video'], 2 => ['Graphics'], 3 => ['CD/DVD Tools'],
-                    4 => ['Media players'], 5 => ['Rippers & Encoders'], 6 => ['Plugins'],
-                    7 => ['Database tools'], 8 => ['Email software'], 9 => ['Photo'], 10 => ['Screensavers'],
-                    11 => ['Skin software'], 12 => ['Drivers'], 13 => ['Browsers'],
-                    14 => ['Download managers'], 15 => ['Download'], 16 => ['Usenet software'],
-                    17 => ['RSS Readers'], 18 => ['FTP software'], 19 => ['Firewalls'],
-                    20 => ['Antivirus software'], 21 => ['Antispyware software'], 22 => ['Optimization software'],
-                    23 => ['Security software'], 24 => ['System software'], 25 => ['Other'],
-                    26 => ['Educational'], 27 => ['Office'], 28 => ['Internet'], 29 => ['Communication'],
-                    30 => ['Development'], 31 => ['Spotnet'],
-                ],
-                'z' => ['z' => 'everything'],
-            ],
-        ];
     }
 }

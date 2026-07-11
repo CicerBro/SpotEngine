@@ -9,14 +9,25 @@ use App\Models\Category;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
+use Throwable;
 
 #[Description('Update spot categories from Spotweb SpotCategories definitions')]
-#[Signature('spot:categories:update')]
+#[Signature('spot:categories:update {--source-url= : Override the Spotweb categories PHP URL}')]
 class UpdateSpotCategories extends Command
 {
     public function handle(): int
     {
-        $rows = SpotwebCategories::toCategoryRows();
+        $sourceUrl = $this->option('source-url');
+
+        try {
+            $rows = SpotwebCategories::fetchCategoryRows(
+                \is_string($sourceUrl) && $sourceUrl !== '' ? $sourceUrl : null
+            );
+        } catch (Throwable $exception) {
+            $this->error('Unable to update categories from Spotweb: ' . $exception->getMessage());
+
+            return self::FAILURE;
+        }
 
         $this->info('Updating ' . \count($rows) . ' categories from Spotweb definitions.');
 
