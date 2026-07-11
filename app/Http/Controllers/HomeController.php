@@ -19,6 +19,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Pagination\CursorPaginator;
 use Illuminate\View\View;
+use Symfony\Component\HttpFoundation\AcceptHeader;
 
 class HomeController extends Controller
 {
@@ -117,7 +118,10 @@ class HomeController extends Controller
 
     public function downloadNzb(Request $request, Spot $spot): Response
     {
-        $nzb = $this->nzbService->fetchNzb($spot);
+        $serveGzipped = $this->requestAcceptsGzip($request);
+        $nzb = $serveGzipped
+            ? $this->nzbService->fetchGzippedNzb($spot)
+            : $this->nzbService->fetchNzb($spot);
         $user = $request->user();
 
         if ($user instanceof User) {
@@ -127,12 +131,19 @@ class HomeController extends Controller
             );
         }
 
-        return response($nzb, 200, [
+        $headers = [
             'Content-Type' => 'application/x-nzb',
             'Content-Disposition' => 'attachment; filename="'.$this->nzbService->filename($spot).'"',
             'X-DNZB-Name' => $spot->title,
             'Cache-Control' => 'public, max-age=2592000',
-        ]);
+            'Vary' => 'Accept-Encoding',
+        ];
+
+        if ($serveGzipped) {
+            $headers['Content-Encoding'] = 'gzip';
+        }
+
+        return response($nzb, 200, $headers);
     }
 
     public function downloadImage(Spot $spot): Response
@@ -179,6 +190,13 @@ class HomeController extends Controller
             'ETag' => '"'.hash('sha256', $data).'"',
             'X-Content-Type-Options' => 'nosniff',
         ]);
+    }
+
+    private function requestAcceptsGzip(Request $request): bool
+    {
+        $gzip = AcceptHeader::fromString($request->headers->get('Accept-Encoding'))->get('gzip');
+
+        return $gzip !== null && $gzip->getQuality() > 0.0;
     }
 
     private function placeholderImageResponse(string $text): Response

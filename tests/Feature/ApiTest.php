@@ -292,6 +292,47 @@ test('API get returns an NZB and records the user download', function () {
     ]);
 });
 
+test('API get serves gzip when accepted', function () {
+    $user = User::factory()->create();
+    $spot = Spot::factory()->create(['title' => 'Tracked gzipped API download']);
+    $plainNzb = '<nzb><file subject="api"/></nzb>';
+    $gzippedNzb = gzencode($plainNzb, 8);
+
+    if ($gzippedNzb === false) {
+        throw new RuntimeException('Unable to create gzipped NZB test fixture.');
+    }
+
+    $nzbService = Mockery::mock(NzbDownloadService::class);
+    $nzbService->shouldReceive('fetchGzippedNzb')
+        ->once()
+        ->withArgs(fn (Spot $candidate) => $candidate->is($spot))
+        ->andReturn($gzippedNzb);
+    $nzbService->shouldNotReceive('fetchNzb');
+    $nzbService->shouldReceive('filename')
+        ->once()
+        ->withArgs(fn (Spot $candidate) => $candidate->is($spot))
+        ->andReturn('tracked.nzb');
+    $this->app->instance(NzbDownloadService::class, $nzbService);
+
+    $response = $this->get(route('api', [
+        't' => 'get',
+        'id' => $spot->id,
+        'apikey' => $user->api_token,
+    ]), [
+        'Accept-Encoding' => 'gzip',
+    ]);
+
+    $response->assertSuccessful();
+    $response->assertHeader('Content-Encoding', 'gzip');
+    $response->assertHeader('Vary', 'Accept-Encoding');
+    expect($response->getContent())->toBe($gzippedNzb)
+        ->and(gzdecode((string) $response->getContent()))->toBe($plainNzb);
+    $this->assertDatabaseHas('user_downloads', [
+        'user_id' => $user->id,
+        'spot_id' => $spot->id,
+    ]);
+});
+
 test('API requests are rate limited per user', function () {
     config()->set('spotengine.newznab.rate_limit_per_minute', 2);
     $user = User::factory()->create();
