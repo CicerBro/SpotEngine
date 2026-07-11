@@ -28,6 +28,7 @@ class SpotRetrieverService
         private readonly SpotParser $parser,
         private readonly NntpService $nntpService,
         private readonly SigningService $signer,
+        private readonly SpotMutationService $spotMutations,
     ) {}
 
     /**
@@ -362,7 +363,7 @@ class SpotRetrieverService
         }
 
         if ($deleteIds !== []) {
-            Spot::query()->whereIn('id', $deleteIds)->delete();
+            $this->spotMutations->delete($deleteIds);
         }
     }
 
@@ -452,7 +453,7 @@ class SpotRetrieverService
             ? ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'updated_at']
             : ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'description', 'nzb_segments', 'image_segment', 'website', 'xml_signature', 'poster_key_id', 'is_verified', 'updated_at'];
 
-        return Spot::upsert($rows, ['message_id'], $updateColumns);
+        return $this->spotMutations->upsert($rows, ['message_id'], $updateColumns);
     }
 
     public function shutdown(): void

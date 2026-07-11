@@ -154,10 +154,25 @@ SpotEngine uses [Laravel's task scheduler](https://laravel.com/docs/scheduling#r
 
 This runs the scheduler every minute, which in turn executes the configured jobs at their defined intervals:
 
-| Command            | Schedule         | Description                                                                                                          |
-| ------------------ | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `spot:retrieve`    | Every 15 minutes | Incrementally fetch new spots via HEAD (full data in one pass)                                                       |
-| `spot:prune-cache` | Daily at 03:00   | Remove cached NZB/image files older than `CACHE_NZB_RETENTION_DAYS` / `CACHE_IMAGE_RETENTION_DAYS` (default 30 each) |
+| Command | Schedule | Description |
+| --- | --- | --- |
+| `spot:retrieve` | Every 15 minutes | Discover and populate new spots |
+| `spot:search-sync` | Every minute | Reconcile pending spot changes with the configured external search index |
+| `spot:prune-cache` | Daily at 03:00 | Remove cached NZB/image files older than their configured retention |
+
+### Production processes
+
+Run the web server, scheduler, and any asynchronous queue worker as separately supervised processes:
+
+```bash
+# Run once through cron every minute:
+* * * * * cd /path-to-your-project && php artisan schedule:run >> /dev/null 2>&1
+
+# Keep running under Supervisor, systemd, or your container orchestrator:
+php artisan queue:work --sleep=3 --tries=3 --timeout=90 --max-time=3600
+```
+
+Restart long-running workers after each deployment with `php artisan queue:restart`; restart Octane as well when it serves the application.
 
 ## API
 

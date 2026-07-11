@@ -9,6 +9,7 @@ use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SingleNntpDriver;
 use App\Services\NzbDownloadService;
 use Illuminate\Console\Command;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
 
 class PrecacheSpots extends Command
@@ -75,6 +76,7 @@ class PrecacheSpots extends Command
         $skipped = 0;
         $failed = 0;
         $processed = 0;
+        $lastId = PHP_INT_MAX;
 
         try {
             while (! $this->shouldStop) {
@@ -84,18 +86,20 @@ class PrecacheSpots extends Command
                     break;
                 }
 
-                /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $batch */
+                /** @var Collection<int, Spot> $batch */
                 $batch = Spot::query()
                     ->whereRaw("nzb_segments != '[]'::jsonb")
+                    ->where('id', '<', $lastId)
                     ->select(['id', 'message_id', 'nzb_segments'])
                     ->orderBy('id', 'desc')
-                    ->offset($processed)
                     ->limit($queryLimit)
                     ->get();
 
                 if ($batch->isEmpty()) {
                     break;
                 }
+
+                $lastId = (int) $batch->last()->id;
 
                 foreach ($batch as $spot) {
                     if ($this->shouldStop) {
@@ -166,7 +170,7 @@ class PrecacheSpots extends Command
                     break;
                 }
 
-                /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $batch */
+                /** @var Collection<int, Spot> $batch */
                 $batch = Spot::query()
                     ->whereNotNull('image_segment')
                     ->select(['id', 'image_segment'])
