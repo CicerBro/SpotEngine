@@ -129,7 +129,7 @@ Run once when setting up a new instance:
 php artisan spot:retrieve --initial-scan
 ```
 
-Uses XOVER to bulk-index spots in parallel. This is fast and the newsgroup's full history can be indexed in minutes. Spots are immediately browsable with their core metadata: title, category, size, and poster. Descriptions, images, NZB segments, and signature verification are not yet populated (see below).
+Uses XOVER to bulk-index spots in parallel. With the default configuration, forward ranges are processed newest-first so recent spots become available first. The forward checkpoint is committed only after the complete range succeeds, preventing an interrupted run from skipping older batches. Spots are immediately browsable with their core metadata: title, category, size, and poster. Descriptions, images, NZB segments, and signature verification are not yet populated (see below).
 
 NNTP Pipelining could further speed this up but during development there were some provider issues so this is on the backburner for now.
 
@@ -145,7 +145,7 @@ This fetches the `HEAD` for each unenriched spot in parallel and populates descr
 
 ### 3. Ongoing retrieval
 
-Once the initial scan and enrichment are done, `spot:retrieve` runs on a schedule (every 15 minutes by default). It fetches `HEAD` for all new articles since the last run, getting full X-XML data in a single pass, no separate enrich step needed for new spots.
+Once the initial scan and enrichment are done, `spot:retrieve` runs on a schedule (every 15 minutes by default). It uses XOVER to discover new articles, then fetches each matching article's `HEAD` data before committing it. New spots therefore receive full X-XML metadata in one scheduled pass and do not need a separate enrichment run.
 
 ## Scheduling
 
@@ -159,10 +159,25 @@ SpotEngine uses [Laravel's task scheduler](https://laravel.com/docs/scheduling#r
 
 This runs the scheduler every minute, which in turn executes the configured jobs at their defined intervals:
 
-| Command            | Schedule         | Description                                                                                                          |
-| ------------------ | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `spot:retrieve`    | Every 15 minutes | Incrementally fetch new spots via HEAD (full data in one pass)                                                       |
-| `spot:prune-cache` | Daily at 03:00   | Remove cached NZB/image files older than `CACHE_NZB_RETENTION_DAYS` / `CACHE_IMAGE_RETENTION_DAYS` (default 30 each) |
+| Command | Schedule | Description |
+| --- | --- | --- |
+| `spot:retrieve` | Every 15 minutes | Discover and populate new spots |
+| `spot:search-sync` | Every minute | Reconcile pending spot changes with the configured external search index |
+| `spot:prune-cache` | Daily at 03:00 | Remove cached NZB/image files older than their configured retention |
+
+### Production processes
+
+Run the web server, scheduler, and any asynchronous queue worker as separately supervised processes:
+
+```bash
+# Run once through cron every minute:
+* * * * * cd /path-to-your-project && php artisan schedule:run >> /dev/null 2>&1
+
+# Keep running under Supervisor, systemd, or your container orchestrator:
+php artisan queue:work --sleep=3 --tries=3 --timeout=90 --max-time=3600
+```
+
+Restart long-running workers after each deployment with `php artisan queue:restart`; restart Octane as well when it serves the application.
 
 ## API
 
@@ -170,12 +185,14 @@ SpotEngine exposes a Newznab-compatible API at `/api`. Supported operations:
 
 - `t=caps`: server capabilities
 - `t=search`: general search
-- `t=tvsearch`: TV search with `season` and `ep` parameters (builds `S01E02` + `Season 1 Episode 2` variants)
-- `t=movie`: movie search
+- `t=tvsearch`: TV search with `season`, `ep`, `rid`, and `tvmazeid`
+- `t=movie`: movie search with `q` and `imdbid`
 - `t=details`: spot details
 - `t=get`: download NZB
 
-Authenticate with `?apikey=YOUR_KEY`. API keys are shown on your profile page.
+Search responses honor arbitrary `offset` values and limits up to 100. External IDs are matched against the source metadata fields that contain IMDb, TVmaze, or TVRage URLs/tokens. Authenticate with `?apikey=YOUR_KEY`; API keys are shown on the profile page. Requests are limited to 60 per minute per user or guest IP by default.
+
+Downloaded spots are recorded in `user_downloads`. Saved filters, excluded-subcategory filtering, and watchlists are intentionally not exposed in the UI until complete product behavior exists; the existing tables remain in place for migration compatibility.
 
 ## Testing
 

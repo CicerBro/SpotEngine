@@ -11,7 +11,10 @@ namespace App\Services\Nntp;
  */
 class NzbGenerator
 {
-    public function __construct(private readonly SingleNntpDriver $nntp) {}
+    public function __construct(
+        private readonly SingleNntpDriver $nntp,
+        private readonly YEncLineDecoder $yEncLineDecoder = new YEncLineDecoder,
+    ) {}
 
     /**
      * Fetch and decode NZB from Usenet
@@ -282,38 +285,9 @@ class NzbGenerator
             }
 
             // Decode the line
-            $decoded .= $this->yencDecodeLine($line);
+            $decoded .= $this->yEncLineDecoder->decode($line, rejectIncompleteEscape: false);
         }
 
         return $decoded;
-    }
-
-    /**
-     * Decode a single yEnc line
-     */
-    private function yencDecodeLine(string $line): string
-    {
-        $result = '';
-        $len = \strlen($line);
-        $i = 0;
-
-        while ($i < $len) {
-            $byte = \ord($line[$i]);
-
-            if ($byte === 0x3D) { // '=' escape character
-                $i++;
-                if ($i < $len) {
-                    // Escaped byte: subtract 64, then 42
-                    $result .= \chr((\ord($line[$i]) - 64 - 42 + 256) % 256);
-                }
-            } else {
-                // Normal byte: subtract 42
-                $result .= \chr(($byte - 42 + 256) % 256);
-            }
-
-            $i++;
-        }
-
-        return $result;
     }
 }

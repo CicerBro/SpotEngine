@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
+use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -22,12 +24,11 @@ use Illuminate\Notifications\Notifiable;
  * @property CarbonImmutable|null $last_login_at
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable $updated_at
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserDownload> $downloads
- * @property-read \Illuminate\Database\Eloquent\Collection<int, UserFilter> $filters
+ * @property-read Collection<int, UserDownload> $downloads
  */
 class User extends Authenticatable
 {
-    /** @use HasFactory<\Database\Factories\UserFactory> */
+    /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
 
     protected $fillable = [
@@ -82,10 +83,5 @@ class User extends Authenticatable
     public function downloads(): HasMany
     {
         return $this->hasMany(UserDownload::class);
-    }
-
-    public function filters(): HasMany
-    {
-        return $this->hasMany(UserFilter::class);
     }
 }

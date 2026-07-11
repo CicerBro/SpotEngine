@@ -1,0 +1,12 @@
+<?php
+
+declare(strict_types=1);
+
+return [
+    'expected_png_base64' => 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
+    'spotnet_multipart_body_base64' => [
+        'iVBORz1CPUMaPUMNCj1BPUE9QT1CSUhEDQpSPUE9QT1BAT1BPQ0KQT1BAQgEPUE9QT0NCkG1HAwCPUE=',
+        'PUE9QQtJREFUeNoNCmNk+A89QQEFAQEnDQoY42Y9QT1BPUE9QQ0KSUVORK5CYII=',
+    ],
+    'corrupt_cached_payload_base64' => 'iVBORw0KGgoNCg0Kbm90LWFuLWltYWdl',
+];

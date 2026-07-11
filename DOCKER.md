@@ -174,6 +174,16 @@ docker compose -f compose.yml -f compose.prod.yml -f compose.octane.yml up --bui
 
 The same applies in production-like mode: FrankenPHP serves traffic directly via built-in Caddy.
 
+### Scheduler and queue worker
+
+The production Compose overrides run the web process only. Configure your host scheduler or orchestrator to execute the scheduler every minute:
+
+```bash
+docker compose -f compose.yml -f compose.prod.yml exec -T app php artisan schedule:run
+```
+
+If `QUEUE_CONNECTION` uses the default asynchronous `database` connection, run `php artisan queue:work --sleep=3 --tries=3 --timeout=90 --max-time=3600` as a separate supervised container or host process. Restart it after deployments with `php artisan queue:restart`.
+
 ## Redis/Valkey Defaults
 
 The default `.env.example` stores cache data and sessions in the Redis-compatible Valkey service. Queues remain database-backed in PostgreSQL:

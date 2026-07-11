@@ -8,7 +8,9 @@ use App\Models\Spot;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
+use App\Services\SpotMutationService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -27,8 +29,12 @@ class EnrichSpots extends Command
 
     protected $description = 'Fetch full X-XML headers for spots indexed with --initial-scan';
 
-    public function handle(NntpService $nntpService, SpotParser $parser, SigningService $signer): int
-    {
+    public function handle(
+        NntpService $nntpService,
+        SpotParser $parser,
+        SigningService $signer,
+        SpotMutationService $spotMutations,
+    ): int {
         $config = $nntpService->getConfig();
         $connections = $this->option('connections') !== null
             ? (int) $this->option('connections')
@@ -71,7 +77,7 @@ class EnrichSpots extends Command
 
             $messageIds = $batch->pluck('message_id')->all();
 
-            /** @var \Illuminate\Support\Collection<string, Spot> $spotsByMessageId */
+            /** @var Collection<string, Spot> $spotsByMessageId */
             $spotsByMessageId = $batch->keyBy('message_id');
 
             $headResults = $nntp->headParallel($messageIds, showProgress: false);
@@ -101,6 +107,7 @@ class EnrichSpots extends Command
                         'description' => null,
                         'nzb_segments' => '[]',
                         'image_segment' => null,
+                        'image_segments' => '[]',
                         'website' => null,
                         'xml_signature' => '',
                         'poster_key_id' => null,
@@ -135,6 +142,7 @@ class EnrichSpots extends Command
                     'description' => $parsed['description'] ?? null,
                     'nzb_segments' => json_encode($parsed['nzb_segments'] ?? []) ?: '[]',
                     'image_segment' => $parsed['image_segment'] ?? null,
+                    'image_segments' => json_encode($parsed['image_segments'] ?? []) ?: '[]',
                     'website' => $parsed['website'] ?? null,
                     'xml_signature' => $parsed['xml_signature'] ?? '',
                     'poster_key_id' => $parsed['poster_key_id'] ?? null,
@@ -145,14 +153,14 @@ class EnrichSpots extends Command
             }
 
             if ($upsertRows !== []) {
-                Spot::upsert($upsertRows, ['id'], [
-                    'description', 'nzb_segments', 'image_segment', 'website',
+                $spotMutations->upsert($upsertRows, ['id'], [
+                    'description', 'nzb_segments', 'image_segment', 'image_segments', 'website',
                     'xml_signature', 'poster_key_id', 'is_verified',
                 ]);
             }
 
             if ($deleteIds !== []) {
-                Spot::query()->whereIn('id', $deleteIds)->delete();
+                $spotMutations->delete($deleteIds);
             }
 
             $this->line("  {$enriched} enriched, {$failed} failed, {$deleted} deleted…");

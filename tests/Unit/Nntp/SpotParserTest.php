@@ -110,13 +110,7 @@ test('parseFromOverview returns null for non-spotnet articles', function () {
 test('parseFromOverview returns moderation array for keyid-2 delete command', function () {
     $parser = new SpotParser;
 
-    // keyid=2 in From header (second char of field0), command in Subject
-    $overview = [
-        'from' => 'Moderator <key@12a0.0.0.1700100000.0.NL.Sig>',
-        'subject' => 'delete jK01nt6aOvYFJuXaQIolG@spot.net',
-        'date' => 'Wed, 19 Feb 2026 10:00:00 +0000',
-        'message_id' => 'mod-article@spot.net',
-    ];
+    $overview = signedModerationOverview('delete jK01nt6aOvYFJuXaQIolG@spot.net');
 
     $result = $parser->parseFromOverview($overview);
 
@@ -125,18 +119,14 @@ test('parseFromOverview returns moderation array for keyid-2 delete command', fu
     expect($result['command'])->toBe('delete');
     expect($result['target_message_id'])->toBe('jK01nt6aOvYFJuXaQIolG@spot.net');
     expect($result['poster'])->toBe('Moderator');
+    expect($result['is_global_moderator'])->toBeTrue();
 });
 
 test('parseFromOverview returns moderation array for dispose and remove commands', function () {
     $parser = new SpotParser;
 
     foreach (['dispose', 'remove'] as $command) {
-        $overview = [
-            'from' => 'Mod <key@12.0.0.1700100000.0.NL.S>',
-            'subject' => "{$command} target-msgid@spot.net",
-            'date' => 'Wed, 19 Feb 2026 10:00:00 +0000',
-            'message_id' => 'mod@spot.net',
-        ];
+        $overview = signedModerationOverview("{$command} target-msgid@spot.net");
 
         $result = $parser->parseFromOverview($overview);
 
@@ -150,18 +140,25 @@ test('parseFromOverview returns moderation array for dispose and remove commands
 test('parseFromOverview strips angle brackets from moderation target message id', function () {
     $parser = new SpotParser;
 
-    $overview = [
-        'from' => 'Mod <key@12.0.0.1700100000.0.NL.S>',
-        'subject' => 'delete <jK01nt6aOvYFJuXaQIolG@spot.net>',
-        'date' => 'Wed, 19 Feb 2026 10:00:00 +0000',
-        'message_id' => 'mod@spot.net',
-    ];
+    $overview = signedModerationOverview('delete <jK01nt6aOvYFJuXaQIolG@spot.net>');
 
     $result = $parser->parseFromOverview($overview);
 
     expect($result)->not->toBeNull();
     expect($result['_moderation'])->toBeTrue();
     expect($result['target_message_id'])->toBe('jK01nt6aOvYFJuXaQIolG@spot.net');
+});
+
+test('parseFromOverview rejects unauthenticated keyid-2 moderation commands', function () {
+    $result = (new SpotParser)->parseFromOverview([
+        'from' => 'Attacker <key@12a0.0.0.1700100000.0.NL.invalid-signature>',
+        'subject' => 'delete victim@spot.net',
+        'date' => 'Wed, 19 Feb 2026 10:00:00 +0000',
+        'message_id' => 'forged-moderation@spot.net',
+    ]);
+
+    expect($result)->not->toBeNull()
+        ->and($result)->not->toHaveKey('_moderation');
 });
 
 test('parseFromOverview skips DISPOSE continuation articles for non-keyid-2', function () {
@@ -213,3 +210,43 @@ test('parseFromOverview parses subcategories from From header', function () {
     expect($spot['subcategories'])->toContain('01d44');
     expect($spot['subcategories'])->toContain('01z02');
 });
+
+test('parseXml only retains safe website schemes', function (string $website, ?string $expected) {
+    $xml = "<Spotnet><Posting><Title>Website test</Title><Website>{$website}</Website><Category>01</Category></Posting></Spotnet>";
+
+    expect((new SpotParser)->parseXml($xml)['website'])->toBe($expected);
+})->with([
+    'https' => ['https://example.com/path', 'https://example.com/path'],
+    'http' => ['http://example.com', 'http://example.com'],
+    'javascript' => ['javascript:alert(1)', null],
+    'data' => ['data:text/html;base64,PHNjcmlwdD4=', null],
+    'relative' => ['//example.com/path', null],
+]);
+
+/**
+ * @return array{subject: string, from: string, date: string, message_id: string}
+ */
+function signedModerationOverview(string $subject): array
+{
+    $privateKey = openssl_pkey_new(['private_key_bits' => 1024, 'private_key_type' => OPENSSL_KEYTYPE_RSA]);
+    $details = openssl_pkey_get_details($privateKey);
+    $modulus = base64_encode($details['rsa']['n']);
+    $exponent = base64_encode($details['rsa']['e']);
+
+    config(['spotengine.moderation.public_keys.2' => [
+        'modulus' => $modulus,
+        'exponent' => $exponent,
+    ]]);
+
+    $poster = 'Moderator';
+    $unsignedHeader = '12a0.0.0.1700100000.0.NL';
+    openssl_sign($subject.$unsignedHeader.$poster, $signature, $privateKey, OPENSSL_ALGO_SHA1);
+    $preparedSignature = str_replace(['+', '/', '='], ['-p', '-s', '-e'], base64_encode($signature));
+
+    return [
+        'from' => "{$poster} <key@{$unsignedHeader}.{$preparedSignature}>",
+        'subject' => $subject,
+        'date' => 'Wed, 19 Feb 2026 10:00:00 +0000',
+        'message_id' => 'authenticated-moderation@spot.net',
+    ];
+}

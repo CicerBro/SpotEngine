@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
-use App\Services\ListingCacheService;
 use App\Services\OverlappedSpotRetrieverService;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Console\Isolatable;
@@ -22,7 +21,7 @@ class RetrieveSpots extends Command implements Isolatable
 
     protected $description = 'Fetch new spots from Usenet and store them in the database';
 
-    public function handle(OverlappedSpotRetrieverService $service, ListingCacheService $listingCache): int
+    public function handle(OverlappedSpotRetrieverService $service): int
     {
         ini_set('memory_limit', config('spotengine.retrieval.memory_limit', '512M'));
 
@@ -64,10 +63,6 @@ class RetrieveSpots extends Command implements Isolatable
                 }
 
                 return self::SUCCESS;
-            }
-
-            if ($result['inserted'] > 0) {
-                $listingCache->flush();
             }
 
             $this->info('Retrieval complete.');

@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Models\Spot;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\Spot>
+ * @extends Factory<Spot>
  */
 class SpotFactory extends Factory
 {
@@ -28,6 +29,7 @@ class SpotFactory extends Factory
             'subcategories' => [],
             'file_size' => fake()->numberBetween(100_000_000, 50_000_000_000),
             'image_segment' => null,
+            'image_segments' => [],
             'nzb_segments' => [
                 fake()->uuid().'@news.example.com',
                 fake()->uuid().'@news.example.com',
@@ -48,7 +50,8 @@ class SpotFactory extends Factory
     public function withImage(): static
     {
         return $this->state(fn (array $attributes) => [
-            'image_segment' => fake()->uuid().'@news.example.com',
+            'image_segment' => $segment = fake()->uuid().'@news.example.com',
+            'image_segments' => [$segment],
         ]);
     }
 }

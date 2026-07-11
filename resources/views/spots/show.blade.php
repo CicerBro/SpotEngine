@@ -13,7 +13,7 @@
         <button type="button"
                 @click="lightbox = true"
                 class="block w-full cursor-zoom-in rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
-            <img src="{{ route('spots.image', $spot) }}"
+            <img src="{{ route('spots.image', ['spot' => $spot, 'v' => config('spotengine.cache.image_version')]) }}"
                  alt="{{ $spot->title }}"
                  class="w-full rounded-md border border-gray-200">
         </button>
@@ -31,7 +31,7 @@
              class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4"
              style="display: none;">
             <div @click.stop class="relative max-h-full max-w-full">
-                <img src="{{ route('spots.image', $spot) }}"
+                <img src="{{ route('spots.image', ['spot' => $spot, 'v' => config('spotengine.cache.image_version')]) }}"
                      alt="{{ $spot->title }}"
                      class="max-h-[90vh] max-w-[90vw] rounded-md object-contain shadow-2xl">
                 <button type="button"

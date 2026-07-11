@@ -31,6 +31,7 @@ use Illuminate\Support\Collection;
  * @property array<int, string> $subcategories
  * @property int $file_size
  * @property string|null $image_segment
+ * @property array<int, string> $image_segments
  * @property array<int, string> $nzb_segments
  * @property CarbonImmutable $spot_posted_at
  * @property string|null $xml_signature
@@ -69,6 +70,7 @@ class Spot extends Model
         'subcategories',
         'file_size',
         'image_segment',
+        'image_segments',
         'nzb_segments',
         'spot_posted_at',
         'xml_signature',
@@ -80,6 +82,7 @@ class Spot extends Model
     {
         return [
             'subcategories' => 'array',
+            'image_segments' => 'array',
             'nzb_segments' => 'array',
             'file_size' => 'integer',
             'is_verified' => 'boolean',

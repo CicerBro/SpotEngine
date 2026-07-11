@@ -87,9 +87,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
 
             // Wait for the previous child before forking a new one.
             if ($prevChildPid !== null) {
-                pcntl_waitpid($prevChildPid, $childStatus);
-                $inserted = (int) stream_get_contents($prevReadPipe);
-                fclose($prevReadPipe);
+                $inserted = $this->awaitUpsertChild($prevChildPid, $prevReadPipe);
                 $prevChildPid = null;
                 $prevReadPipe = null;
                 $commitPrev($inserted);
@@ -98,10 +96,14 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
             // Open a pipe so the child can return the inserted count.
             [$readPipe, $writePipe] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
 
+            // Never fork with an active PDO connection. A child reconnect on an
+            // inherited PostgreSQL socket can terminate the parent's session.
+            DB::disconnect();
             $pid = pcntl_fork();
 
             if ($pid === -1) {
                 // Fork failed — upsert synchronously and continue.
+                DB::reconnect();
                 fclose($readPipe);
                 fclose($writePipe);
                 $inserted = $this->batchUpsert($spots);
@@ -124,13 +126,26 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
                 fclose($readPipe);
                 $this->nntp->detach();
                 DB::reconnect();
-                $inserted = $this->batchUpsert($spots);
-                fwrite($writePipe, (string) $inserted);
+                try {
+                    $inserted = $this->batchUpsert($spots);
+                    $payload = json_encode(['ok' => true, 'inserted' => $inserted], JSON_THROW_ON_ERROR);
+                    fwrite($writePipe, $payload);
+                    $exitCode = 0;
+                } catch (\Throwable $exception) {
+                    $payload = json_encode([
+                        'ok' => false,
+                        'error' => $exception::class.': '.$exception->getMessage(),
+                    ], JSON_THROW_ON_ERROR);
+                    fwrite($writePipe, $payload);
+                    $exitCode = 1;
+                }
+
                 fclose($writePipe);
-                exit(0);
+                exit($exitCode);
             }
 
             // Parent: track the child and immediately loop to the next fetch.
+            DB::reconnect();
             fclose($writePipe);
             $prevChildPid = $pid;
             $prevReadPipe = $readPipe;
@@ -139,9 +154,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
 
         // Collect the final child.
         if ($prevChildPid !== null) {
-            pcntl_waitpid($prevChildPid, $childStatus);
-            $inserted = (int) stream_get_contents($prevReadPipe);
-            fclose($prevReadPipe);
+            $inserted = $this->awaitUpsertChild($prevChildPid, $prevReadPipe);
             $commitPrev($inserted);
         }
 
@@ -150,5 +163,40 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
         }
 
         return ['totalProcessed' => $totalProcessed, 'totalInserted' => $totalInserted, 'highestArticle' => $highestArticle];
+    }
+
+    /** @param resource $readPipe */
+    private function awaitUpsertChild(int $childPid, mixed $readPipe): int
+    {
+        $waitedPid = pcntl_waitpid($childPid, $childStatus);
+        $payload = stream_get_contents($readPipe);
+        fclose($readPipe);
+
+        $result = null;
+
+        if (\is_string($payload) && $payload !== '') {
+            try {
+                $decoded = json_decode($payload, true, flags: JSON_THROW_ON_ERROR);
+                $result = \is_array($decoded) ? $decoded : null;
+            } catch (\JsonException) {
+                $result = null;
+            }
+        }
+
+        $completedSuccessfully = $waitedPid === $childPid
+            && pcntl_wifexited($childStatus)
+            && pcntl_wexitstatus($childStatus) === 0
+            && ($result['ok'] ?? false) === true
+            && \is_int($result['inserted'] ?? null);
+
+        if (! $completedSuccessfully) {
+            $error = \is_string($result['error'] ?? null)
+                ? $result['error']
+                : 'child exited without a valid success result';
+
+            throw new \RuntimeException("Forked spot upsert failed: {$error}");
+        }
+
+        return $result['inserted'];
     }
 }

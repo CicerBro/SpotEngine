@@ -52,3 +52,27 @@ test('fetchNzb decodes multiple yEnc BODY responses without joining control line
 
     expect($nzb)->toBe($xml);
 });
+
+test('fetchNzb tolerates an incomplete trailing yEnc escape', function () {
+    $xml = '<?xml version="1.0"?><nzb><file subject="test"/></nzb>';
+    $body = preg_replace('/\r\n=yend/', "=\r\n=yend", yEncArticle($xml, 'test'), 1);
+
+    $nntp = Mockery::mock(SingleNntpDriver::class);
+    $nntp->shouldReceive('group')->once()->with('alt.binaries.ftd')->andReturn([
+        'count' => 1,
+        'first' => 1,
+        'last' => 1,
+        'group' => 'alt.binaries.ftd',
+    ]);
+    $nntp->shouldReceive('body')
+        ->once()
+        ->with('test@test')
+        ->andReturn((string) $body);
+
+    $nzb = (new NzbGenerator($nntp))->fetchNzb(
+        ['test@test'],
+        'alt.binaries.ftd',
+    );
+
+    expect($nzb)->toBe($xml);
+});

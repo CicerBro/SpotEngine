@@ -7,6 +7,7 @@ use App\Http\Middleware\RequireAdmin;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
@@ -33,6 +34,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null;
             }
 
+            if ($e instanceof HttpResponseException) {
+                return null;
+            }
+
             $status = $e instanceof HttpExceptionInterface ? $e->getStatusCode() : 500;
 
             $newznabCode = match (true) {
@@ -42,7 +47,10 @@ return Application::configure(basePath: dirname(__DIR__))
                 default => 900,
             };
 
-            $description = htmlspecialchars($e->getMessage() ?: 'Unknown error', ENT_XML1 | ENT_QUOTES, 'UTF-8');
+            $message = app()->isProduction() && $status >= 500
+                ? 'Internal server error'
+                : ($e->getMessage() ?: 'Unknown error');
+            $description = htmlspecialchars($message, ENT_XML1 | ENT_QUOTES, 'UTF-8');
             $xml = '<?xml version="1.0" encoding="UTF-8"?>'."\n".'<error code="'.$newznabCode.'" description="'.$description.'"/>';
 
             return response($xml, $status, ['Content-Type' => 'text/xml; charset=utf-8']);

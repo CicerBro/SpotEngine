@@ -6,4 +6,6 @@ use App\Http\Controllers\ApiController;
 use Illuminate\Support\Facades\Route;
 
 // Newznab-compatible API — authentication handled per-action via the 'api' guard
-Route::get('/', [ApiController::class, 'handle'])->name('api');
+Route::get('/', [ApiController::class, 'handle'])
+    ->middleware('throttle:newznab')
+    ->name('api');
