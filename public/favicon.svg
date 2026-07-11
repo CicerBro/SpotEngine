@@ -1,39 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <defs>
-    <radialGradient id="beam" cx="50%" cy="15%" r="85%" fx="50%" fy="15%">
-      <stop offset="0%"   stop-color="#fef3c7" stop-opacity="0.95"/>
-      <stop offset="35%"  stop-color="#fbbf24" stop-opacity="0.75"/>
-      <stop offset="100%" stop-color="#f97316" stop-opacity="0.08"/>
-    </radialGradient>
-    <linearGradient id="lamp" x1="0%" y1="0%" x2="0%" y2="100%">
-      <stop offset="0%"   stop-color="#fef9c3"/>
-      <stop offset="100%" stop-color="#f59e0b"/>
-    </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="6" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-  </defs>
-
-  <!-- Spotlight cone beam -->
-  <path d="M 256 148 L 52 500 L 460 500 Z" fill="url(#beam)"/>
-
-  <!-- Lamp housing body -->
-  <rect x="196" y="24" width="120" height="80" rx="16" fill="#1e293b"/>
-  <rect x="208" y="28" width="96" height="68" rx="12" fill="#334155"/>
-
-  <!-- Lamp lens glow ring -->
-  <circle cx="256" cy="148" r="52" fill="#1e293b"/>
-  <circle cx="256" cy="148" r="44" fill="#0f172a"/>
-
-  <!-- Lamp lens - the actual light -->
-  <circle cx="256" cy="148" r="36" fill="url(#lamp)" filter="url(#glow)"/>
-  <circle cx="256" cy="148" r="22" fill="#fef9c3"/>
-
-  <!-- Lens highlight -->
-  <circle cx="246" cy="138" r="8" fill="white" opacity="0.7"/>
-
-  <!-- Mounting bracket -->
-  <rect x="246" y="6" width="20" height="26" rx="6" fill="#475569"/>
-  <circle cx="256" cy="6" r="8" fill="#64748b"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title">
+  <title id="title">SpotEngine</title>
+  <path
+    d="M23.8 6.5H13.2a5.2 5.2 0 0 0 0 10.4h5.6a5.2 5.2 0 0 1 0 10.4H8.2"
+    fill="none"
+    stroke="#2563eb"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="3.2"
+  />
 </svg>
