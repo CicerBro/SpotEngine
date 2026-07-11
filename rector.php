@@ -12,9 +12,7 @@ return RectorConfig::configure()
         __DIR__.'/database',
         __DIR__.'/routes',
     ])
-    ->withSkip([
-        'app/Services/Search/Drivers/ManticoreSearchDriver.php',
-    ])
+    ->withSkip([])
     ->withSetProviders(LaravelSetProvider::class)
     ->withComposerBased(laravel: true)
     ->withPhpSets(php85: true)
