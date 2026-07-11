@@ -266,7 +266,15 @@ class SingleNntpDriver implements NntpDriverInterface
     }
 
     /**
-     * Fetch headers for a list of article numbers serially.
+     * Fetch HEAD for many articles on this single connection.
+     *
+     * The method name comes from {@see NntpDriverInterface}: callers use the same
+     * API whether they have one connection ({@see self}) or a connection pool
+     * ({@see ParallelNntpDriver}). It does not mean this driver runs requests in
+     * parallel — here each article is fetched serially via {@see head()}, one
+     * command at a time. For true parallel HEAD throughput, use
+     * {@see ParallelNntpDriver::headParallel()}.
+     *
      * Articles that return 430 (No Such Article) are passed as null to $onArticle
      * or stored as null in the returned array.
      *
