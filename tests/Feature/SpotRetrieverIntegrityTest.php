@@ -116,6 +116,46 @@ test('authenticated global moderation can delete a recent spot', function () {
     $this->assertModelMissing($spot);
 });
 
+test('initial scan inserts only overview fields and ignores duplicate conflicts', function () {
+    $service = new IntegrityTestSpotRetriever;
+    $postedAt = now()->subDay()->startOfSecond();
+    $spot = [
+        'message_id' => 'initial-scan@example.test',
+        'poster' => 'Poster',
+        'title' => 'Initial scan title',
+        'tag' => 'Tag',
+        'category_code' => '01',
+        'subcategories' => ['01a01'],
+        'file_size' => 123,
+        'spot_posted_at' => $postedAt->toDateTimeString(),
+        'description' => 'Should not be written during initial scan.',
+        'image_segments' => ['image-segment@example.test'],
+        'nzb_segments' => ['nzb-segment@example.test'],
+        'website' => 'https://example.test',
+        'xml_signature' => 'signature',
+        'poster_key_id' => 'poster-key',
+        'is_verified' => true,
+    ];
+
+    $inserted = $service->batchUpsertForTest([$spot], initialScan: true);
+    $spot['title'] = 'Updated duplicate title';
+    $spot['file_size'] = 999;
+    $duplicateInserted = $service->batchUpsertForTest([$spot], initialScan: true);
+    $persisted = Spot::query()->where('message_id', 'initial-scan@example.test')->firstOrFail();
+
+    expect($inserted)->toBe(1)
+        ->and($duplicateInserted)->toBe(0)
+        ->and($persisted->title)->toBe('Initial scan title')
+        ->and($persisted->file_size)->toBe(123)
+        ->and($persisted->description)->toBeNull()
+        ->and($persisted->image_segments)->toBe([])
+        ->and($persisted->nzb_segments)->toBe([])
+        ->and($persisted->website)->toBeNull()
+        ->and($persisted->xml_signature)->toBeNull()
+        ->and($persisted->poster_key_id)->toBeNull()
+        ->and($persisted->is_verified)->toBeFalse();
+});
+
 class IntegrityTestSpotRetriever extends SpotRetrieverService
 {
     public bool $stopAfterFetch = false;
@@ -155,6 +195,14 @@ class IntegrityTestSpotRetriever extends SpotRetrieverService
     public function moderate(array $commands): void
     {
         $this->processModeration($commands);
+    }
+
+    /** @param list<array<string, mixed>> $spots */
+    public function batchUpsertForTest(array $spots, bool $initialScan): int
+    {
+        $this->initialScan = $initialScan;
+
+        return $this->batchUpsert($spots);
     }
 
     #[Override]
