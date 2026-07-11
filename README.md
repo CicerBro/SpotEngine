@@ -100,7 +100,8 @@ Copy `.env.example` to `.env` and fill in:
 | `APP_KEY`                            | Required Laravel encryption key                                  |
 | `DB_*`                               | PostgreSQL connection                                            |
 | `REDIS_*`                            | Redis connection (`REDIS_CACHE_DB` defaults to `1`)              |
-| `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server                                                    |
+| `NNTP_HOST`, `NNTP_PORT`, `NNTP_SSL` | Usenet server; defaults are TLS on port `563`                    |
+| `NNTP_TLS_VERIFY`                    | Verify the NNTP server certificate (default `true`)              |
 | `NNTP_USERNAME`, `NNTP_PASSWORD`     | Usenet credentials                                               |
 | `NNTP_CONNECTIONS`                   | Parallel connection count (default `20`)                         |
 | `SEARCH_DRIVER`                      | `database` (default) or `manticore` (work in progress)           |
