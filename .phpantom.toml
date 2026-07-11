@@ -1,0 +1,12 @@
+[formatting]
+php-cs-fixer = ""
+
+[phpcs]
+command = ""
+
+[mago]
+command = ""
+
+[diagnostics]
+# Exclude the vendor directory from generating squigglies/errors
+exclude = ["vendor/**"]
