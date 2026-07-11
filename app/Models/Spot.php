@@ -86,6 +86,7 @@ class Spot extends Model
             'nzb_segments' => 'array',
             'file_size' => 'integer',
             'is_verified' => 'boolean',
+            'has_nzb' => 'boolean',
             'spot_posted_at' => 'immutable_datetime',
         ];
     }
