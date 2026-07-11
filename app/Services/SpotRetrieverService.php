@@ -468,6 +468,23 @@ class SpotRetrieverService
         $rows = [];
 
         foreach ($chunk as $spot) {
+            if ($this->initialScan) {
+                $rows[] = [
+                    'message_id' => $spot['message_id'],
+                    'poster' => $spot['poster'] ?? null,
+                    'title' => $spot['title'],
+                    'tag' => $spot['tag'] ?? null,
+                    'category_code' => $spot['category_code'],
+                    'subcategories' => json_encode($spot['subcategories'] ?? []) ?: '[]',
+                    'file_size' => $spot['file_size'] ?? 0,
+                    'spot_posted_at' => $spot['spot_posted_at'],
+                    'created_at' => $timestamp,
+                    'updated_at' => $timestamp,
+                ];
+
+                continue;
+            }
+
             $rows[] = array_merge($spot, [
                 'subcategories' => json_encode($spot['subcategories'] ?? []) ?: '[]',
                 'nzb_segments' => json_encode($spot['nzb_segments'] ?? []) ?: '[]',
@@ -477,12 +494,11 @@ class SpotRetrieverService
             ]);
         }
 
-        // In initial-scan mode only XOVER fields are updated on conflict, so that
-        // a later HEAD-enrichment run does not get overwritten by a re-scan.
-        // In normal mode the full set (including X-XML) is updated on conflict.
-        $updateColumns = $this->initialScan
-            ? ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'updated_at']
-            : ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'description', 'image_segments', 'nzb_segments', 'website', 'xml_signature', 'poster_key_id', 'is_verified', 'updated_at'];
+        if ($this->initialScan) {
+            return $this->spotMutations->insertOrIgnore($rows);
+        }
+
+        $updateColumns = ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'description', 'image_segments', 'nzb_segments', 'website', 'xml_signature', 'poster_key_id', 'is_verified', 'updated_at'];
 
         return $this->spotMutations->upsert($rows, ['message_id'], $updateColumns);
     }

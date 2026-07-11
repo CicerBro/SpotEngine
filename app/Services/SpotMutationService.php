@@ -23,9 +23,53 @@ final readonly class SpotMutationService
             return 0;
         }
 
+        if (! $this->shouldQueueIndexSynchronization()) {
+            $affected = Spot::upsert($rows, $uniqueBy, $updateColumns);
+
+            if ($affected > 0) {
+                $this->listingCache->flush();
+            }
+
+            return $affected;
+        }
+
         [$affected, $spotIds] = DB::transaction(function () use ($rows, $uniqueBy, $updateColumns): array {
             $affected = Spot::upsert($rows, $uniqueBy, $updateColumns);
             $spotIds = $this->resolveSpotIds($rows);
+            $this->queueIndexSynchronization($spotIds);
+
+            return [$affected, $spotIds];
+        });
+
+        if ($affected > 0 || $spotIds !== []) {
+            $this->listingCache->flush();
+        }
+
+        return $affected;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     */
+    public function insertOrIgnore(array $rows): int
+    {
+        if ($rows === []) {
+            return 0;
+        }
+
+        if (! $this->shouldQueueIndexSynchronization()) {
+            $affected = DB::table('spots')->insertOrIgnore($rows);
+
+            if ($affected > 0) {
+                $this->listingCache->flush();
+            }
+
+            return $affected;
+        }
+
+        [$affected, $spotIds] = DB::transaction(function () use ($rows): array {
+            $affected = DB::table('spots')->insertOrIgnore($rows);
+            $spotIds = $affected > 0 ? $this->resolveSpotIds($rows) : [];
             $this->queueIndexSynchronization($spotIds);
 
             return [$affected, $spotIds];
@@ -46,7 +90,7 @@ final readonly class SpotMutationService
         $updated = DB::transaction(function () use ($spot, $attributes): bool {
             $updated = $spot->update($attributes);
 
-            if ($updated) {
+            if ($updated && $this->shouldQueueIndexSynchronization()) {
                 $this->queueIndexSynchronization([$spot->id]);
             }
 
@@ -76,7 +120,10 @@ final readonly class SpotMutationService
 
         $deleted = DB::transaction(function () use ($spotIds): int {
             $deleted = Spot::query()->whereKey($spotIds)->delete();
-            $this->queueIndexSynchronization($spotIds);
+
+            if ($deleted > 0 && $this->shouldQueueIndexSynchronization()) {
+                $this->queueIndexSynchronization($spotIds);
+            }
 
             return $deleted;
         });
@@ -151,7 +198,7 @@ final readonly class SpotMutationService
      */
     private function queueIndexSynchronization(array $spotIds): void
     {
-        if (config('search.driver') !== 'manticore' || $spotIds === []) {
+        if ($spotIds === []) {
             return;
         }
 
@@ -170,5 +217,10 @@ final readonly class SpotMutationService
             ['spot_id'],
             ['token', 'updated_at'],
         );
+    }
+
+    private function shouldQueueIndexSynchronization(): bool
+    {
+        return config('search.driver') === 'manticore';
     }
 }
