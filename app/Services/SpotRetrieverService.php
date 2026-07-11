@@ -130,6 +130,17 @@ class SpotRetrieverService
         return ['processed' => $totalProcessed, 'inserted' => $totalInserted, 'last_article' => $highestArticle];
     }
 
+    public function shutdown(): void
+    {
+        $this->shuttingDown = true;
+
+        try {
+            $this->closeNntpConnection();
+        } catch (\Throwable) {
+            // Ignore shutdown errors
+        }
+    }
+
     /**
      * Build batch ranges [start, end] for the given article range.
      *
@@ -205,16 +216,6 @@ class SpotRetrieverService
         }
 
         $state->save();
-    }
-
-    /** @return array{int, int, int, int} [processed, parsed, inserted, lastArticle] */
-    private function processBatch(int $batchStart, int $batchEnd): array
-    {
-        [$processed, $spots, $moderationCommands, $lastInBatch] = $this->fetchBatch($batchStart, $batchEnd);
-        $inserted = $this->batchUpsert($spots);
-        $this->processModeration($moderationCommands);
-
-        return [$processed, \count($spots), $inserted, $lastInBatch];
     }
 
     /**
@@ -419,6 +420,16 @@ class SpotRetrieverService
         return $inserted;
     }
 
+    /** @return array{int, int, int, int} [processed, parsed, inserted, lastArticle] */
+    private function processBatch(int $batchStart, int $batchEnd): array
+    {
+        [$processed, $spots, $moderationCommands, $lastInBatch] = $this->fetchBatch($batchStart, $batchEnd);
+        $inserted = $this->batchUpsert($spots);
+        $this->processModeration($moderationCommands);
+
+        return [$processed, \count($spots), $inserted, $lastInBatch];
+    }
+
     /**
      * @param  array<int, array<string, mixed>>  $spots
      * @return array<int, array<string, mixed>>
@@ -475,17 +486,6 @@ class SpotRetrieverService
             : ['title', 'poster', 'category_code', 'subcategories', 'file_size', 'tag', 'spot_posted_at', 'description', 'nzb_segments', 'image_segment', 'image_segments', 'website', 'xml_signature', 'poster_key_id', 'is_verified', 'updated_at'];
 
         return $this->spotMutations->upsert($rows, ['message_id'], $updateColumns);
-    }
-
-    public function shutdown(): void
-    {
-        $this->shuttingDown = true;
-
-        try {
-            $this->closeNntpConnection();
-        } catch (\Throwable) {
-            // Ignore shutdown errors
-        }
     }
 
     private function closeNntpConnection(): void

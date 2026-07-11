@@ -31,22 +31,6 @@ class SpotwebCategories
     ];
 
     /**
-     * Head category index to our 2-digit code (01, 02, 03, 04).
-     */
-    private static function headCode(int $hcat): string
-    {
-        return str_pad((string) ($hcat + 1), 2, '0', STR_PAD_LEFT);
-    }
-
-    /**
-     * Map Spotweb subcat description to our type (lowercase slug).
-     */
-    private static function descriptionToType(string $description): string
-    {
-        return Str::slug($description, '_');
-    }
-
-    /**
      * Flatten Spotweb categories into rows for our categories table.
      *
      * @return array<int, array{code: string, parent_code: string|null, name: string, slug: string, type: string|null, sort_order: int}>
@@ -77,10 +61,10 @@ class SpotwebCategories
 
                 foreach ($items as $index => $name) {
                     $numIndex = is_numeric($index) ? (int) $index : 0;
-                    $subCode = $code.$letter.\sprintf('%02d', $numIndex);
+                    $subCode = $code . $letter . \sprintf('%02d', $numIndex);
                     $displayName = ($name === '' || $name === '-') ? '-' : $name;
                     $slug = self::uniqueSlug(
-                        ($name === '' || $name === '-') ? $letter.\sprintf('%02d', $numIndex) : Str::slug($name),
+                        ($name === '' || $name === '-') ? $letter . \sprintf('%02d', $numIndex) : Str::slug($name),
                         $usedSlugs
                     );
                     $rows[] = [
@@ -98,12 +82,28 @@ class SpotwebCategories
         return $rows;
     }
 
+    /**
+     * Head category index to our 2-digit code (01, 02, 03, 04).
+     */
+    private static function headCode(int $hcat): string
+    {
+        return str_pad((string) ($hcat + 1), 2, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Map Spotweb subcat description to our type (lowercase slug).
+     */
+    private static function descriptionToType(string $description): string
+    {
+        return Str::slug($description, '_');
+    }
+
     private static function uniqueSlug(string $base, array &$used): string
     {
         $slug = $base;
         $suffix = 0;
         while (isset($used[$slug])) {
-            $slug = $base.'-'.(++$suffix);
+            $slug = $base . '-' . (++$suffix);
         }
         $used[$slug] = true;
 

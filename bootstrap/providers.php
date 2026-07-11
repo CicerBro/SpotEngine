@@ -1,10 +1,14 @@
 <?php
 
 declare(strict_types=1);
+use App\Providers\AppServiceProvider;
+use App\Providers\FortifyServiceProvider;
+use App\Providers\NntpServiceProvider;
+use App\Providers\SearchServiceProvider;
 
 return [
-    App\Providers\AppServiceProvider::class,
-    App\Providers\FortifyServiceProvider::class,
-    App\Providers\NntpServiceProvider::class,
-    App\Providers\SearchServiceProvider::class,
+    AppServiceProvider::class,
+    FortifyServiceProvider::class,
+    NntpServiceProvider::class,
+    SearchServiceProvider::class,
 ];

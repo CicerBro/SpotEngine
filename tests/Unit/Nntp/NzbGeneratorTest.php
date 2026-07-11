@@ -13,15 +13,15 @@ function yEncArticle(string $data, string $name): string
         $encodedByte = ($byte + 42) % 256;
 
         if (in_array($encodedByte, [0, 10, 13, 46, 61], true)) {
-            $encoded .= '='.chr(($encodedByte + 64) % 256);
+            $encoded .= '=' . chr(($encodedByte + 64) % 256);
         } else {
             $encoded .= chr($encodedByte);
         }
     }
 
-    return '=ybegin line=128 size='.strlen($data)." name={$name}\r\n"
-        .$encoded."\r\n"
-        .'=yend size='.strlen($data);
+    return '=ybegin line=128 size=' . strlen($data) . " name={$name}\r\n"
+        . $encoded . "\r\n"
+        . '=yend size=' . strlen($data);
 }
 
 function specialZipArticle(string $data): string

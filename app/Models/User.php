@@ -6,6 +6,8 @@ namespace App\Models;
 
 use Carbon\CarbonImmutable;
 use Database\Factories\UserFactory;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -26,7 +28,7 @@ use Illuminate\Notifications\Notifiable;
  * @property CarbonImmutable $updated_at
  * @property-read Collection<int, UserDownload> $downloads
  */
-#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+#[Fillable([
     'username',
     'name',
     'email',
@@ -35,7 +37,7 @@ use Illuminate\Notifications\Notifiable;
     'api_token',
     'last_login_at',
 ])]
-#[\Illuminate\Database\Eloquent\Attributes\Hidden([
+#[Hidden([
     'password',
     'remember_token',
 ])]
@@ -43,27 +45,6 @@ class User extends Authenticatable
 {
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable;
-
-    #[\Override]
-    protected function casts(): array
-    {
-        return [
-            'email_verified_at' => 'immutable_datetime',
-            'last_login_at' => 'immutable_datetime',
-            'password' => 'hashed',
-            'is_admin' => 'boolean',
-        ];
-    }
-
-    #[\Override]
-    protected static function booted(): void
-    {
-        static::creating(function (User $user) {
-            if (empty($user->api_token)) {
-                $user->api_token = self::generateApiKey();
-            }
-        });
-    }
 
     public static function generateApiKey(): string
     {
@@ -81,5 +62,26 @@ class User extends Authenticatable
     public function downloads(): HasMany
     {
         return $this->hasMany(UserDownload::class);
+    }
+
+    #[\Override]
+    protected static function booted(): void
+    {
+        static::creating(function (User $user) {
+            if (empty($user->api_token)) {
+                $user->api_token = self::generateApiKey();
+            }
+        });
+    }
+
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'email_verified_at' => 'immutable_datetime',
+            'last_login_at' => 'immutable_datetime',
+            'password' => 'hashed',
+            'is_admin' => 'boolean',
+        ];
     }
 }

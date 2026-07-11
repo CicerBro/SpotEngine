@@ -11,7 +11,7 @@ use App\Services\SpotImageService;
 use Illuminate\Support\Facades\File;
 
 beforeEach(function () {
-    $this->imageCacheDirectory = storage_path('framework/testing/spot-images-'.bin2hex(random_bytes(4)));
+    $this->imageCacheDirectory = storage_path('framework/testing/spot-images-' . bin2hex(random_bytes(4)));
     config()->set('spotengine.cache.image_path', $this->imageCacheDirectory);
     config()->set('spotengine.cache.image_version', 2);
 
@@ -76,7 +76,7 @@ test('valid cached previews are returned without opening an NNTP connection', fu
 
 test('a corrupt current-version cache entry is deleted and refetched', function () {
     $spot = previewSpot(['corrupt@spot.net']);
-    $driver = previewDriver($spot->image_segments, [$this->articleBodies[0].$this->articleBodies[1]]);
+    $driver = previewDriver($spot->image_segments, [$this->articleBodies[0] . $this->articleBodies[1]]);
     $nntpService = previewNntpService($driver);
     $enricher = Mockery::mock(SpotEnricher::class);
     $enricher->shouldReceive('enrich')->once()->with($spot);

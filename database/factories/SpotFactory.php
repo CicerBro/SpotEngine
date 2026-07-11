@@ -18,8 +18,8 @@ class SpotFactory extends Factory
         $category = fake()->randomElement($categories);
 
         return [
-            'message_id' => '<'.fake()->uuid().'@news.example.com>',
-            'poster' => fake()->name().' <'.fake()->email().'>',
+            'message_id' => '<' . fake()->uuid() . '@news.example.com>',
+            'poster' => fake()->name() . ' <' . fake()->email() . '>',
             'poster_key_id' => null,
             'title' => fake()->sentence(5),
             'description' => fake()->paragraph(),
@@ -31,8 +31,8 @@ class SpotFactory extends Factory
             'image_segment' => null,
             'image_segments' => [],
             'nzb_segments' => [
-                fake()->uuid().'@news.example.com',
-                fake()->uuid().'@news.example.com',
+                fake()->uuid() . '@news.example.com',
+                fake()->uuid() . '@news.example.com',
             ],
             'spot_posted_at' => fake()->dateTimeBetween('-1 year', 'now'),
             'xml_signature' => null,
@@ -50,7 +50,7 @@ class SpotFactory extends Factory
     public function withImage(): static
     {
         return $this->state(fn (array $attributes) => [
-            'image_segment' => $segment = fake()->uuid().'@news.example.com',
+            'image_segment' => $segment = fake()->uuid() . '@news.example.com',
             'image_segments' => [$segment],
         ]);
     }

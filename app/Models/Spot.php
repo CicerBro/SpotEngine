@@ -77,20 +77,6 @@ class Spot extends Model
 
     private string $cachedDescriptionHtml = '';
 
-    #[\Override]
-    protected function casts(): array
-    {
-        return [
-            'subcategories' => 'array',
-            'image_segments' => 'array',
-            'nzb_segments' => 'array',
-            'file_size' => 'integer',
-            'is_verified' => 'boolean',
-            'has_nzb' => 'boolean',
-            'spot_posted_at' => 'immutable_datetime',
-        ];
-    }
-
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class, 'category_code', 'code');
@@ -99,47 +85,6 @@ class Spot extends Model
     public function downloads(): HasMany
     {
         return $this->hasMany(UserDownload::class);
-    }
-
-    #[Scope]
-    protected function inCategory(Builder $query, string $code): Builder
-    {
-        return $query->where('category_code', $code);
-    }
-
-    /**
-     * Filter by one or more subcategory codes using PostgreSQL JSONB containment.
-     *
-     * @param  string[]  $codes
-     */
-    #[Scope]
-    protected function withSubcategory(Builder $query, array $codes): Builder
-    {
-        return $query->where(function (Builder $q) use ($codes) {
-            foreach ($codes as $code) {
-                $q->orWhereRaw('subcategories @> ?::jsonb', [json_encode([$code]) ?: '[]']);
-            }
-        });
-    }
-
-    #[Scope]
-    protected function search(Builder $query, string $term, SearchField $field = SearchField::Title): Builder
-    {
-        return app(SearchDriver::class)->search($query, $term, $field);
-    }
-
-    #[Scope]
-    protected function latestFirst(Builder $query): Builder
-    {
-        return $query
-            ->orderByDesc('spot_posted_at')
-            ->orderByDesc('id');
-    }
-
-    #[Scope]
-    protected function postedAfter(Builder $query, \DateTimeInterface $date): Builder
-    {
-        return $query->where('spot_posted_at', '>=', $date);
     }
 
     public function getAgeFormattedAttribute(): string
@@ -152,14 +97,14 @@ class Spot extends Model
         $bytes = $this->file_size;
 
         if ($bytes >= 1_073_741_824) {
-            return number_format($bytes / 1_073_741_824, 2).' GB';
+            return number_format($bytes / 1_073_741_824, 2) . ' GB';
         }
 
         if ($bytes >= 1_048_576) {
-            return number_format($bytes / 1_048_576, 1).' MB';
+            return number_format($bytes / 1_048_576, 1) . ' MB';
         }
 
-        return number_format($bytes / 1024, 0).' KB';
+        return number_format($bytes / 1024, 0) . ' KB';
     }
 
     public function getSenderAttribute(): string
@@ -231,6 +176,74 @@ class Spot extends Model
         return null;
     }
 
+    public function getDescriptionHtmlAttribute(): string
+    {
+        $description = $this->description;
+
+        if (! $this->hasCachedDescriptionHtml || $this->cachedDescriptionHtmlSource !== $description) {
+            $this->cachedDescriptionHtml = app(BbCodeParsingService::class)->parse($description);
+            $this->cachedDescriptionHtmlSource = $description;
+            $this->hasCachedDescriptionHtml = true;
+        }
+
+        return $this->cachedDescriptionHtml;
+    }
+
+    #[\Override]
+    protected function casts(): array
+    {
+        return [
+            'subcategories' => 'array',
+            'image_segments' => 'array',
+            'nzb_segments' => 'array',
+            'file_size' => 'integer',
+            'is_verified' => 'boolean',
+            'has_nzb' => 'boolean',
+            'spot_posted_at' => 'immutable_datetime',
+        ];
+    }
+
+    #[Scope]
+    protected function inCategory(Builder $query, string $code): Builder
+    {
+        return $query->where('category_code', $code);
+    }
+
+    /**
+     * Filter by one or more subcategory codes using PostgreSQL JSONB containment.
+     *
+     * @param  string[]  $codes
+     */
+    #[Scope]
+    protected function withSubcategory(Builder $query, array $codes): Builder
+    {
+        return $query->where(function (Builder $q) use ($codes) {
+            foreach ($codes as $code) {
+                $q->orWhereRaw('subcategories @> ?::jsonb', [json_encode([$code]) ?: '[]']);
+            }
+        });
+    }
+
+    #[Scope]
+    protected function search(Builder $query, string $term, SearchField $field = SearchField::Title): Builder
+    {
+        return app(SearchDriver::class)->search($query, $term, $field);
+    }
+
+    #[Scope]
+    protected function latestFirst(Builder $query): Builder
+    {
+        return $query
+            ->orderByDesc('spot_posted_at')
+            ->orderByDesc('id');
+    }
+
+    #[Scope]
+    protected function postedAfter(Builder $query, \DateTimeInterface $date): Builder
+    {
+        return $query->where('spot_posted_at', '>=', $date);
+    }
+
     /**
      * Build lookup candidates for a subcategory code in both storage formats.
      *
@@ -247,11 +260,11 @@ class Spot extends Model
         $lookupCodes = [$normalizedCode];
 
         if (preg_match('/^([a-z])(\d{1,2})$/', $normalizedCode, $matches) === 1) {
-            $lookupCodes[] = $this->rootCategoryCode().$matches[1].sprintf('%02d', (int) $matches[2]);
+            $lookupCodes[] = $this->rootCategoryCode() . $matches[1] . sprintf('%02d', (int) $matches[2]);
         }
 
         if (preg_match('/^(\d{2})([a-z])(\d{1,2})$/', $normalizedCode, $matches) === 1) {
-            $lookupCodes[] = $matches[1].$matches[2].sprintf('%02d', (int) $matches[3]);
+            $lookupCodes[] = $matches[1] . $matches[2] . sprintf('%02d', (int) $matches[3]);
         }
 
         return array_values(array_unique($lookupCodes));
@@ -271,18 +284,5 @@ class Spot extends Model
         }
 
         return '01';
-    }
-
-    public function getDescriptionHtmlAttribute(): string
-    {
-        $description = $this->description;
-
-        if (! $this->hasCachedDescriptionHtml || $this->cachedDescriptionHtmlSource !== $description) {
-            $this->cachedDescriptionHtml = app(BbCodeParsingService::class)->parse($description);
-            $this->cachedDescriptionHtmlSource = $description;
-            $this->hasCachedDescriptionHtml = true;
-        }
-
-        return $this->cachedDescriptionHtml;
     }
 }

@@ -12,9 +12,9 @@ use App\Services\Nntp\SpotnetHeaderParser;
 
 final class TranscriptNntpStream implements NntpStreamInterface
 {
-    private int $offset = 0;
-
     public string $written = '';
+
+    private int $offset = 0;
 
     public function __construct(
         private readonly string $transcript,
@@ -143,7 +143,7 @@ test('compressed XOVER corruption is a hard failure', function () {
 
 test('compressed XOVER responses are decompressed after complete framing', function () {
     $compressed = gzcompress("1\tSubject\tPoster\tDate\t<one@test>\r\n");
-    $stream = new TranscriptNntpStream($compressed.".\r\n", readChunkSize: 3);
+    $stream = new TranscriptNntpStream($compressed . ".\r\n", readChunkSize: 3);
 
     expect((new NntpProtocol($stream))->readCompressedTextResponse())->toBe([
         "1\tSubject\tPoster\tDate\t<one@test>",

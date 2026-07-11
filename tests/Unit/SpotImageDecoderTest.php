@@ -15,16 +15,16 @@ function encodeSpotImageYEnc(string $data, int $part): string
         $value = (ord($byte) + 42) & 0xFF;
 
         if (\in_array($value, [0, 9, 10, 13, 46, 61], true)) {
-            $encoded .= '='.chr(($value + 64) & 0xFF);
+            $encoded .= '=' . chr(($value + 64) & 0xFF);
         } else {
             $encoded .= chr($value);
         }
     }
 
-    return "=ybegin part={$part} line=128 size=".strlen($data)." name=preview.jpg\r\n"
-        .'=ypart begin=1 end='.strlen($data)."\r\n"
-        .$encoded."\r\n"
-        .'=yend size='.strlen($data).' part='.$part.' pcrc32='.hash('crc32b', $data);
+    return "=ybegin part={$part} line=128 size=" . strlen($data) . " name=preview.jpg\r\n"
+        . '=ypart begin=1 end=' . strlen($data) . "\r\n"
+        . $encoded . "\r\n"
+        . '=yend size=' . strlen($data) . ' part=' . $part . ' pcrc32=' . hash('crc32b', $data);
 }
 
 test('Spotnet multipart image fixtures discard NNTP framing before special decoding', function () {
@@ -58,11 +58,11 @@ test('explicit base64 and uuencoded image bodies are decoded', function (string 
     expect((new SpotImageDecoder)->decode([$body]))->toBe($expected);
 })->with([
     'base64' => [
-        "Content-Type: image/png\r\nContent-Transfer-Encoding: base64\r\n\r\n".base64_encode('base64-image'),
+        "Content-Type: image/png\r\nContent-Transfer-Encoding: base64\r\n\r\n" . base64_encode('base64-image'),
         'base64-image',
     ],
     'uuencode' => [
-        "begin 644 preview.jpg\r\n".rtrim(convert_uuencode('uu-image'))."\r\nend",
+        "begin 644 preview.jpg\r\n" . rtrim(convert_uuencode('uu-image')) . "\r\nend",
         'uu-image',
     ],
 ]);
@@ -79,8 +79,8 @@ test('corrupt yEnc checksums are rejected', function () {
 
 test('incomplete trailing yEnc escapes are rejected for images', function () {
     $body = "=ybegin line=128 size=0 name=preview.jpg\r\n"
-        ."=\r\n"
-        .'=yend size=0';
+        . "=\r\n"
+        . '=yend size=0';
 
     (new SpotImageDecoder)->decode([$body]);
 })->throws(UnexpectedValueException::class, 'incomplete escape');

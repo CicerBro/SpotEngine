@@ -46,8 +46,15 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
 
         // Collect the previous child's result, update totals, save state, and report.
         $commitPrev = function (int $inserted) use (
-            &$prevBatch, &$totalProcessed, &$totalInserted, &$highestArticle,
-            $backfill, $groupInfo, $state, $onBatchComplete, $saveStateOnlyAfterLastBatch
+            &$prevBatch,
+            &$totalProcessed,
+            &$totalInserted,
+            &$highestArticle,
+            $backfill,
+            $groupInfo,
+            $state,
+            $onBatchComplete,
+            $saveStateOnlyAfterLastBatch
         ): void {
             $totalInserted += $inserted;
             $totalProcessed += $prevBatch['processed'];
@@ -58,8 +65,11 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
 
             if ($onBatchComplete !== null) {
                 $onBatchComplete(
-                    $prevBatch['batchStart'], $prevBatch['batchEnd'],
-                    $prevBatch['processed'], $prevBatch['parsed'], $inserted
+                    $prevBatch['batchStart'],
+                    $prevBatch['batchEnd'],
+                    $prevBatch['processed'],
+                    $prevBatch['parsed'],
+                    $inserted
                 );
             }
 
@@ -134,7 +144,7 @@ class OverlappedSpotRetrieverService extends SpotRetrieverService
                 } catch (\Throwable $exception) {
                     $payload = json_encode([
                         'ok' => false,
-                        'error' => $exception::class.': '.$exception->getMessage(),
+                        'error' => $exception::class . ': ' . $exception->getMessage(),
                     ], JSON_THROW_ON_ERROR);
                     fwrite($writePipe, $payload);
                     $exitCode = 1;

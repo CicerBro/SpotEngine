@@ -25,7 +25,7 @@ abstract class TestCase extends BaseTestCase
 
         // Also check the cached config file directly, bypassing Laravel entirely.
         // A stale config cache will override phpunit.xml env vars and point at the prod DB.
-        $cachedConfig = __DIR__.'/../bootstrap/cache/config.php';
+        $cachedConfig = __DIR__ . '/../bootstrap/cache/config.php';
         if (file_exists($cachedConfig)) {
             $config = require $cachedConfig;
             $default = $config['database']['default'] ?? 'pgsql';
@@ -41,7 +41,7 @@ abstract class TestCase extends BaseTestCase
     {
         throw new \RuntimeException(
             "Tests would use your application database and wipe data! \n\n  Reason: ({$reason}). "
-            .'Use a separate test DB: "DB_DATABASE=spotengine_test" in phpunit.xml.'
+            . 'Use a separate test DB: "DB_DATABASE=spotengine_test" in phpunit.xml.'
         );
     }
 }

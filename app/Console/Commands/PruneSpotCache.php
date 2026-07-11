@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace App\Console\Commands;
 
+use Illuminate\Console\Attributes\Description;
+use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 
-#[\Illuminate\Console\Attributes\Description('Delete cached NZB and image files older than the configured retention period')]
-#[\Illuminate\Console\Attributes\Signature('spot:prune-cache
+#[Description('Delete cached NZB and image files older than the configured retention period')]
+#[Signature('spot:prune-cache
                             {--nzb-days= : Override NZB retention days from config}
                             {--image-days= : Override image retention days from config}
                             {--clear : Delete ALL cached NZB and image files regardless of retention settings}')]

@@ -76,6 +76,21 @@ class SpotEnricher
     }
 
     /**
+     * A spot is considered enriched when its xml_signature has been set (even
+     * to an empty string), or when it has non-default X-XML fields. The
+     * xml_signature column is always written during enrichment, so it serves
+     * as a reliable sentinel — null means "never enriched".
+     */
+    public function isEnriched(Spot $spot): bool
+    {
+        return $spot->xml_signature !== null
+            || $spot->nzb_segments !== []
+            || $spot->image_segments !== []
+            || $spot->image_segment !== null
+            || $spot->description !== null;
+    }
+
+    /**
      * Fetch HEAD headers for a spot, retrying on connection failures.
      *
      * @return array<string, string>|null
@@ -101,20 +116,5 @@ class SpotEnricher
         }
 
         return null;
-    }
-
-    /**
-     * A spot is considered enriched when its xml_signature has been set (even
-     * to an empty string), or when it has non-default X-XML fields. The
-     * xml_signature column is always written during enrichment, so it serves
-     * as a reliable sentinel — null means "never enriched".
-     */
-    public function isEnriched(Spot $spot): bool
-    {
-        return $spot->xml_signature !== null
-            || $spot->nzb_segments !== []
-            || $spot->image_segments !== []
-            || $spot->image_segment !== null
-            || $spot->description !== null;
     }
 }

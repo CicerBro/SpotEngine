@@ -47,7 +47,7 @@ class ListingCacheService
 
         $prefix = config('cache.prefix', '');
         DB::table('cache')
-            ->where('key', 'like', $prefix.self::KEY_PREFIX.'%')
+            ->where('key', 'like', $prefix . self::KEY_PREFIX . '%')
             ->delete();
     }
 
@@ -57,7 +57,7 @@ class ListingCacheService
         $params['_response'] = $request->expectsJson() ? 'json' : 'html';
         ksort($params);
 
-        return self::KEY_PREFIX.sha1(serialize($params));
+        return self::KEY_PREFIX . sha1(serialize($params));
     }
 
     private function isEnabled(): bool

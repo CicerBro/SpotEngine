@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace App\Models;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\WithoutIncrementing;
+use Illuminate\Database\Eloquent\Attributes\WithoutTimestamps;
 use Illuminate\Database\Eloquent\Model;
 
 /**
@@ -15,15 +18,15 @@ use Illuminate\Database\Eloquent\Model;
  * @property CarbonImmutable|null $last_retrieval_at
  * @property CarbonImmutable|null $updated_at
  */
-#[\Illuminate\Database\Eloquent\Attributes\Fillable([
+#[Fillable([
     'newsgroup',
     'last_article_id',
     'first_article_id',
     'last_backfilled_article_id',
     'last_retrieval_at',
 ])]
-#[\Illuminate\Database\Eloquent\Attributes\WithoutIncrementing]
-#[\Illuminate\Database\Eloquent\Attributes\WithoutTimestamps]
+#[WithoutIncrementing]
+#[WithoutTimestamps]
 class UsenetState extends Model
 {
     #[\Override]
@@ -31,6 +34,15 @@ class UsenetState extends Model
 
     #[\Override]
     protected $keyType = 'string';
+
+    public static function forNewsgroup(string $newsgroup): self
+    {
+        return static::firstOrNew(['newsgroup' => $newsgroup], [
+            'last_article_id' => 0,
+            'first_article_id' => 0,
+            'last_backfilled_article_id' => 0,
+        ]);
+    }
 
     #[\Override]
     protected function casts(): array
@@ -42,14 +54,5 @@ class UsenetState extends Model
             'last_retrieval_at' => 'immutable_datetime',
             'updated_at' => 'immutable_datetime',
         ];
-    }
-
-    public static function forNewsgroup(string $newsgroup): self
-    {
-        return static::firstOrNew(['newsgroup' => $newsgroup], [
-            'last_article_id' => 0,
-            'first_article_id' => 0,
-            'last_backfilled_article_id' => 0,
-        ]);
     }
 }

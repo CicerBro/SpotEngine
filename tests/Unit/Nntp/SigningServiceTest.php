@@ -18,7 +18,7 @@ test('verify returns true for valid spotnet-escaped base64 signature', function 
     $escapedSig = str_replace(['+', '/', '='], ['-p', '-s', '-e'], $sigBase64);
     $escapedKeyXml = preg_replace_callback(
         '/<(Modulus|Exponent)>([^<]+)</',
-        fn ($m) => "<{$m[1]}>".str_replace(['+', '/', '='], ['-p', '-s', '-e'], $m[2]).'<',
+        fn ($m) => "<{$m[1]}>" . str_replace(['+', '/', '='], ['-p', '-s', '-e'], $m[2]) . '<',
         $userKeyXml,
     );
 
@@ -32,7 +32,7 @@ test('verify returns false for tampered content', function () {
 
     $signer = new SigningService;
 
-    expect($signer->verify($xmlContent.' tampered', $sigBase64, $userKeyXml))->toBeFalse();
+    expect($signer->verify($xmlContent . ' tampered', $sigBase64, $userKeyXml))->toBeFalse();
 });
 
 test('verify returns false for empty inputs', function () {

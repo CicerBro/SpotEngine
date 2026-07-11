@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Database\Factories;
 
+use App\Models\UserDownload;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\UserDownload>
+ * @extends Factory<UserDownload>
  */
 class UserDownloadFactory extends Factory
 {
@@ -19,7 +20,7 @@ class UserDownloadFactory extends Factory
     public function definition(): array
     {
         return [
-            //
+
         ];
     }
 }

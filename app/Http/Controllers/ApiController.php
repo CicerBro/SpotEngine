@@ -215,7 +215,7 @@ class ApiController extends Controller
 
         $headers = [
             'Content-Type' => 'application/x-nzb',
-            'Content-Disposition' => 'attachment; filename="'.$this->nzbService->filename($spot).'"',
+            'Content-Disposition' => 'attachment; filename="' . $this->nzbService->filename($spot) . '"',
             'X-DNZB-Name' => $spot->title,
             'Cache-Control' => 'public, max-age=86400',
             'Vary' => 'Accept-Encoding',
@@ -356,7 +356,7 @@ class ApiController extends Controller
 
     private function apiError(int $code, string $message): Response
     {
-        $xml = '<?xml version="1.0" encoding="UTF-8"?>'."\n".'<error code="'.$code.'" description="'.e($message).'"/>';
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n" . '<error code="' . $code . '" description="' . e($message) . '"/>';
 
         return response($xml, 400, ['Content-Type' => 'text/xml; charset=utf-8']);
     }
@@ -375,7 +375,7 @@ class ApiController extends Controller
         if (! $user instanceof User) {
             $description = filled(request()->input('apikey')) ? 'Incorrect API key' : 'API key is required';
             abort(response(
-                '<?xml version="1.0" encoding="UTF-8"?>'."\n".'<error code="100" description="'.$description.'"/>',
+                '<?xml version="1.0" encoding="UTF-8"?>' . "\n" . '<error code="100" description="' . $description . '"/>',
                 401,
                 ['Content-Type' => 'text/xml; charset=utf-8']
             ));

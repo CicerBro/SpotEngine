@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Models\Spot;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
@@ -42,7 +43,7 @@ test('admin can view dashboard', function () {
     expect($firstCategory->category_code)->toBe('01');
     expect($firstCategory->category_name)->toBe('Image');
     expect($firstCategory->count)->toBe(2);
-    expect(\Carbon\Carbon::parse($firstCategory->latest)->toDateTimeString())
+    expect(Carbon::parse($firstCategory->latest)->toDateTimeString())
         ->toBe($latestSpotTime->toDateTimeString());
 });
 

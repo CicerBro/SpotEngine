@@ -34,7 +34,7 @@ final readonly class NntpEndpoint
 
     public function address(): string
     {
-        return ($this->ssl ? 'ssl' : 'tcp')."://{$this->host}:{$this->port}";
+        return ($this->ssl ? 'ssl' : 'tcp') . "://{$this->host}:{$this->port}";
     }
 
     /** @return array{ssl: array{verify_peer: bool, verify_peer_name: bool, allow_self_signed: bool, peer_name: string}} */

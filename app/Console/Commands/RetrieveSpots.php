@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Services\OverlappedSpotRetrieverService;
+use Illuminate\Console\Attributes\Description;
+use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Console\Isolatable;
 
-#[\Illuminate\Console\Attributes\Description('Fetch new spots from Usenet and store them in the database')]
-#[\Illuminate\Console\Attributes\Signature('spot:retrieve
+#[Description('Fetch new spots from Usenet and store them in the database')]
+#[Signature('spot:retrieve
                             {--initial-scan : XOVER only — fast bulk index; run spot:enrich afterwards to populate X-XML}
                             {--backfill : Fetch older spots below current position (run repeatedly until complete)}
                             {--reset-backfill : Reset backfill progress and start over}

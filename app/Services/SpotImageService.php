@@ -112,7 +112,7 @@ class SpotImageService
     public function cachePath(array $segments): string
     {
         $version = (int) config('spotengine.cache.image_version', 2);
-        $cacheKey = "spot-image-v{$version}\0".implode("\0", $segments);
+        $cacheKey = "spot-image-v{$version}\0" . implode("\0", $segments);
 
         return nestedCachePath(
             (string) config('spotengine.cache.image_path'),
@@ -239,7 +239,7 @@ class SpotImageService
             throw new \RuntimeException("Unable to create image cache directory: {$directory}");
         }
 
-        $temporaryPath = $cachePath.'.'.bin2hex(random_bytes(6)).'.tmp';
+        $temporaryPath = $cachePath . '.' . bin2hex(random_bytes(6)) . '.tmp';
 
         if (file_put_contents($temporaryPath, $imageData, LOCK_EX) === false) {
             throw new \RuntimeException('Unable to write the preview image cache.');
