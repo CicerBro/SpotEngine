@@ -18,14 +18,14 @@ test('listing cache stores and returns cached spots when enabled', function () {
 
     $response1 = $this->actingAs($user)->get('/');
     $response1->assertSuccessful();
-    expect($response1->viewData('spots')->total())->toBe(3);
+    expect($response1->viewData('spotCount'))->toBe(3);
 
     // Create more spots — cached response should still show 3
     Spot::factory()->count(2)->create();
 
     $response2 = $this->actingAs($user)->get('/');
     $response2->assertSuccessful();
-    expect($response2->viewData('spots')->total())->toBe(3);
+    expect($response2->viewData('spotCount'))->toBe(3);
 });
 
 test('listing cache is bypassed when disabled', function () {
@@ -35,12 +35,12 @@ test('listing cache is bypassed when disabled', function () {
     Spot::factory()->count(3)->create();
 
     $response1 = $this->actingAs($user)->get('/');
-    expect($response1->viewData('spots')->total())->toBe(3);
+    expect($response1->viewData('spotCount'))->toBe(3);
 
     Spot::factory()->count(2)->create();
 
     $response2 = $this->actingAs($user)->get('/');
-    expect($response2->viewData('spots')->total())->toBe(5);
+    expect($response2->viewData('spotCount'))->toBe(5);
 });
 
 test('different query params produce separate cache entries', function () {
@@ -56,14 +56,14 @@ test('different query params produce separate cache entries', function () {
     $response2->assertSuccessful();
 
     // Both should return 3 spots (same data, different cache keys)
-    expect($response1->viewData('spots')->total())->toBe(3);
-    expect($response2->viewData('spots')->total())->toBe(3);
+    expect($response1->viewData('spotCount'))->toBe(3);
+    expect($response2->viewData('spotCount'))->toBe(3);
 
     // Add spots — per_page=25 cached result stays at 3
     Spot::factory()->count(2)->create();
 
     $response3 = $this->actingAs($user)->get('/?per_page=25');
-    expect($response3->viewData('spots')->total())->toBe(3);
+    expect($response3->viewData('spotCount'))->toBe(3);
 });
 
 test('flush clears all listing cache entries', function () {
@@ -84,8 +84,30 @@ test('flush clears all listing cache entries', function () {
 
     // Should now see 5 spots
     $response = $this->actingAs($user)->get('/');
-    expect($response->viewData('spots')->total())->toBe(5);
+    expect($response->viewData('spotCount'))->toBe(5);
 
     $response2 = $this->actingAs($user)->get('/?per_page=25');
-    expect($response2->viewData('spots')->total())->toBe(5);
+    expect($response2->viewData('spotCount'))->toBe(5);
+});
+
+test('listing cache separates cursor JSON fragments from full page responses', function () {
+    config(['spotengine.listing_cache.enabled' => true, 'spotengine.listing_cache.ttl' => 5]);
+
+    $user = User::factory()->create();
+    Spot::factory()->count(12)->create();
+
+    $firstPage = $this->actingAs($user)->get('/?per_page=10');
+    $nextPageUrl = $firstPage->viewData('spots')->nextPageUrl();
+
+    expect($nextPageUrl)->not->toBeNull();
+
+    $this->actingAs($user)
+        ->getJson($nextPageUrl)
+        ->assertSuccessful()
+        ->assertJsonPath('count', 2);
+
+    $fullPage = $this->actingAs($user)->get($nextPageUrl);
+
+    $fullPage->assertSuccessful();
+    expect($fullPage->viewData('spotCount'))->toBe(12);
 });

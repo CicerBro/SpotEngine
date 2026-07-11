@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title">
+  <title id="title">SpotEngine</title>
+  <path
+    d="M23.8 6.5H13.2a5.2 5.2 0 0 0 0 10.4h5.6a5.2 5.2 0 0 1 0 10.4H8.2"
+    fill="none"
+    stroke="#2563eb"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="3.2"
+  />
+  <path
+    d="m8.2 25.5 3.1 1.8-3.1 1.8"
+    fill="none"
+    stroke="#2563eb"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-width="3.2"
+  />
+</svg>

@@ -15,7 +15,7 @@ class ListingCacheService
 
     private const string KEY_PREFIX = 'spots:listing:';
 
-    private const array RELEVANT_PARAMS = ['cat', 'subcat', 'q', 'search_in', 'per_page', 'page'];
+    private const array RELEVANT_PARAMS = ['cat', 'subcat', 'q', 'search_in', 'per_page', 'cursor'];
 
     public function remember(Request $request, Closure $callback): mixed
     {
@@ -54,6 +54,7 @@ class ListingCacheService
     private function cacheKey(Request $request): string
     {
         $params = $request->only(self::RELEVANT_PARAMS);
+        $params['_response'] = $request->expectsJson() ? 'json' : 'html';
         ksort($params);
 
         return self::KEY_PREFIX.sha1(serialize($params));

@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';
 @source '../../storage/framework/views/*.php';
 @source '../**/*.blade.php';
@@ -148,4 +150,53 @@ body {
 
 .spot-description ol {
     list-style-type: decimal;
+}
+
+.dark .spot-description {
+    color: #cbd5e1;
+}
+
+.dark .spot-description strong {
+    color: #f8fafc;
+}
+
+.dark .spot-description a {
+    color: #60a5fa;
+}
+
+.dark .spot-description a:hover {
+    color: #93c5fd;
+}
+
+.dark .spot-description blockquote {
+    border-color: #475569;
+    color: #94a3b8;
+}
+
+.dark .spot-description details summary {
+    color: #94a3b8;
+}
+
+.dark .spot-description details summary:hover {
+    color: #e2e8f0;
+}
+
+.dark .spot-description pre,
+.dark .spot-description code {
+    background: #0f172a;
+    color: #e2e8f0;
+}
+
+.dark .spot-description pre code {
+    background: transparent;
+}
+
+.dark .spot-description table,
+.dark .spot-description th,
+.dark .spot-description td {
+    border-color: #334155;
+}
+
+.dark .spot-description th {
+    background: #0f172a;
 }

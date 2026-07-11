@@ -8,6 +8,7 @@ use App\Data\SpotSearchCriteria;
 use App\Enums\SearchField;
 use App\Models\Spot;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Pagination\CursorPaginator;
 use Illuminate\Pagination\LengthAwarePaginator;
 
 interface SearchDriver
@@ -18,6 +19,15 @@ interface SearchDriver
      * @return LengthAwarePaginator<int, Spot>
      */
     public function paginate(SpotSearchCriteria $criteria): LengthAwarePaginator;
+
+    /**
+     * Execute the listing query with cursor pagination for infinite scrolling.
+     *
+     * @return CursorPaginator<int, Spot>
+     */
+    public function cursorPaginate(SpotSearchCriteria $criteria): CursorPaginator;
+
+    public function count(SpotSearchCriteria $criteria): int;
 
     /**
      * Apply a search term to an existing Spot query builder.
