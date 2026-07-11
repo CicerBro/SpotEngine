@@ -76,3 +76,11 @@ test('corrupt yEnc checksums are rejected', function () {
 
     (new SpotImageDecoder)->decode([(string) $body]);
 })->throws(UnexpectedValueException::class, 'checksum');
+
+test('incomplete trailing yEnc escapes are rejected for images', function () {
+    $body = "=ybegin line=128 size=0 name=preview.jpg\r\n"
+        ."=\r\n"
+        .'=yend size=0';
+
+    (new SpotImageDecoder)->decode([$body]);
+})->throws(UnexpectedValueException::class, 'incomplete escape');

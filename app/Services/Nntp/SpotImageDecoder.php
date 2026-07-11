@@ -6,6 +6,10 @@ namespace App\Services\Nntp;
 
 final class SpotImageDecoder
 {
+    public function __construct(
+        private readonly YEncLineDecoder $yEncLineDecoder = new YEncLineDecoder,
+    ) {}
+
     /**
      * Decode one or more NNTP article bodies into their original binary payload.
      *
@@ -122,21 +126,7 @@ final class SpotImageDecoder
         $decoded = '';
 
         foreach ($encodedLines as $line) {
-            $length = strlen($line);
-
-            for ($index = 0; $index < $length; $index++) {
-                $value = ord($line[$index]);
-
-                if ($value === 61) {
-                    if (++$index >= $length) {
-                        throw new \UnexpectedValueException('The yEnc image body ends with an incomplete escape.');
-                    }
-
-                    $value = (ord($line[$index]) - 64) & 0xFF;
-                }
-
-                $decoded .= chr(($value - 42) & 0xFF);
-            }
+            $decoded .= $this->yEncLineDecoder->decode($line);
         }
 
         return $decoded;
