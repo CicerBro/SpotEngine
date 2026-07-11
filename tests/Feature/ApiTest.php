@@ -342,7 +342,7 @@ test('API search tvsearch and movie use the manticore query contract', function 
     ]))
         ->assertSuccessful()
         ->assertSee($general->title)
-        ->assertSee('General serialized description')
+        ->assertDontSee('General serialized description')
         ->assertSee('offset="3"', false)
         ->assertSee('total="1"', false);
 

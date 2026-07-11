@@ -7,16 +7,6 @@
     <title>@yield('title', 'SpotEngine')</title>
     <link rel="icon" type="image/svg+xml" href="{{ asset('favicon.svg') }}">
     <link rel="shortcut icon" href="{{ asset('favicon.ico') }}">
-    <script>
-        (() => {
-            const preference = localStorage.getItem('spotengine-theme');
-            const dark = preference === 'dark'
-                || (preference === null && window.matchMedia('(prefers-color-scheme: dark)').matches);
-
-            document.documentElement.classList.toggle('dark', dark);
-            document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
-        })();
-    </script>
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 </head>
 <body class="h-full bg-gray-50 text-gray-900 antialiased dark:bg-slate-950 dark:text-slate-100"

@@ -4,118 +4,157 @@ import collapse from "@alpinejs/collapse";
 Alpine.plugin(collapse);
 
 const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+const THEME_STORAGE_KEY = "spotengine-theme";
+
+function isDark(preference) {
+    return (
+        preference === "dark" ||
+        ((preference === null || preference === "system") &&
+            systemTheme.matches)
+    );
+}
+
+function applyTheme(preference) {
+    const dark = isDark(preference);
+
+    document.documentElement.classList.toggle("dark", dark);
+    document.documentElement.style.colorScheme = dark ? "dark" : "light";
+
+    return dark;
+}
+
+const storedPreference = localStorage.getItem(THEME_STORAGE_KEY);
+
+applyTheme(storedPreference);
 
 Alpine.store("theme", {
-    preference: localStorage.getItem("spotengine-theme"),
-    dark: document.documentElement.classList.contains("dark"),
+    preference: storedPreference,
+    dark: isDark(storedPreference),
+
+    get mode() {
+        if (this.preference === "light" || this.preference === "dark") {
+            return this.preference;
+        }
+
+        return "system";
+    },
+
+    get label() {
+        return {
+            system: "Theme: system. Click for light theme",
+            light: "Theme: light. Click for dark theme",
+            dark: "Theme: dark. Click for system theme",
+        }[this.mode];
+    },
 
     apply() {
-        this.dark =
-            this.preference === "dark" ||
-            (this.preference === null && systemTheme.matches);
-
-        document.documentElement.classList.toggle("dark", this.dark);
-        document.documentElement.style.colorScheme = this.dark
-            ? "dark"
-            : "light";
+        this.dark = applyTheme(this.preference);
     },
 
     toggle() {
-        this.preference = this.dark ? "light" : "dark";
-        localStorage.setItem("spotengine-theme", this.preference);
+        const next = { system: "light", light: "dark", dark: "system" };
+        const nextPreference = next[this.mode];
+
+        if (nextPreference === "system") {
+            this.preference = null;
+            localStorage.removeItem(THEME_STORAGE_KEY);
+        } else {
+            this.preference = nextPreference;
+            localStorage.setItem(THEME_STORAGE_KEY, nextPreference);
+        }
+
         this.apply();
     },
 });
 
 systemTheme.addEventListener("change", () => {
-    if (Alpine.store("theme").preference === null) {
+    const { preference } = Alpine.store("theme");
+
+    if (preference === null || preference === "system") {
         Alpine.store("theme").apply();
     }
 });
 
-Alpine.data(
-    "infiniteSpots",
-    (initialNextUrl, initialCount, totalCount) => ({
-        nextUrl: initialNextUrl,
-        loadedCount: initialCount,
-        totalCount,
-        loading: false,
-        error: false,
-        finished: !initialNextUrl,
-        automatic: "IntersectionObserver" in window,
-        observer: null,
+Alpine.data("infiniteSpots", (initialNextUrl, initialCount, totalCount) => ({
+    nextUrl: initialNextUrl,
+    loadedCount: initialCount,
+    totalCount,
+    loading: false,
+    error: false,
+    finished: !initialNextUrl,
+    automatic: "IntersectionObserver" in window,
+    observer: null,
 
-        init() {
-            if (!this.automatic || !this.nextUrl) {
-                return;
+    init() {
+        if (!this.automatic || !this.nextUrl) {
+            return;
+        }
+
+        this.observer = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting) {
+                    this.loadMore();
+                }
+            },
+            {
+                root: this.$root.closest("main"),
+                rootMargin: "400px 0px",
+            },
+        );
+
+        this.observer.observe(this.$refs.sentinel);
+    },
+
+    async loadMore() {
+        if (!this.nextUrl || this.loading) {
+            return;
+        }
+
+        this.loading = true;
+        this.error = false;
+
+        try {
+            const response = await fetch(this.nextUrl, {
+                headers: {
+                    Accept: "application/json",
+                    "X-Requested-With": "XMLHttpRequest",
+                },
+            });
+
+            if (!response.ok) {
+                throw new Error(`Unable to load spots (${response.status})`);
             }
 
-            this.observer = new IntersectionObserver(
-                ([entry]) => {
-                    if (entry.isIntersecting) {
+            const payload = await response.json();
+
+            this.$refs.rows.insertAdjacentHTML("beforeend", payload.html);
+            this.loadedCount += payload.count;
+            this.nextUrl = payload.next_url;
+            this.finished = !payload.has_more || !payload.next_url;
+
+            if (this.finished) {
+                this.observer?.disconnect();
+            } else {
+                this.$nextTick(() => {
+                    const sentinelTop =
+                        this.$refs.sentinel.getBoundingClientRect().top;
+
+                    if (sentinelTop < window.innerHeight + 400) {
                         this.loadMore();
                     }
-                },
-                {
-                    root: this.$root.closest("main"),
-                    rootMargin: "400px 0px",
-                },
-            );
-
-            this.observer.observe(this.$refs.sentinel);
-        },
-
-        async loadMore() {
-            if (!this.nextUrl || this.loading) {
-                return;
-            }
-
-            this.loading = true;
-            this.error = false;
-
-            try {
-                const response = await fetch(this.nextUrl, {
-                    headers: {
-                        Accept: "application/json",
-                        "X-Requested-With": "XMLHttpRequest",
-                    },
                 });
-
-                if (!response.ok) {
-                    throw new Error(`Unable to load spots (${response.status})`);
-                }
-
-                const payload = await response.json();
-
-                this.$refs.rows.insertAdjacentHTML("beforeend", payload.html);
-                this.loadedCount += payload.count;
-                this.nextUrl = payload.next_url;
-                this.finished = !payload.has_more || !payload.next_url;
-
-                if (this.finished) {
-                    this.observer?.disconnect();
-                } else {
-                    this.$nextTick(() => {
-                        const sentinelTop =
-                            this.$refs.sentinel.getBoundingClientRect().top;
-
-                        if (sentinelTop < window.innerHeight + 400) {
-                            this.loadMore();
-                        }
-                    });
-                }
-            } catch {
-                this.error = true;
-            } finally {
-                this.loading = false;
             }
-        },
+        } catch {
+            this.error = true;
+        } finally {
+            this.loading = false;
+        }
+    },
 
-        destroy() {
-            this.observer?.disconnect();
-        },
-    }),
-);
+    destroy() {
+        this.observer?.disconnect();
+    },
+}));
 
 Alpine.store("spotPreview", {
     visible: false,
@@ -123,7 +162,7 @@ Alpine.store("spotPreview", {
     my: 0,
     src: "",
     showTimer: null,
-    delayMs: 300,
+    delayMs: 200,
 
     show(src, mx, my) {
         this.mx = mx;
@@ -145,10 +184,9 @@ Alpine.store("spotPreview", {
         clearTimeout(this.showTimer);
         this.showTimer = null;
         this.visible = false;
+        this.src = "";
     },
 });
-
-Alpine.store("theme").apply();
 
 // Hide preview when mouse leaves the browser window
 document.documentElement.addEventListener("mouseleave", () => {
