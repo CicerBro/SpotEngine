@@ -235,7 +235,7 @@ test('parallel XOVER rejects incomplete socket responses', function () {
         'port' => 119,
         'ssl' => false,
         'timeout' => 0,
-    ]);
+    ], connector: static fn (): mixed => null);
     [$client, $server] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
     fwrite($server, "224 overview follows\r\n1\tSubject\tPoster\tDate\t<one@test>\r\n");
     injectParallelSockets($driver, [$client]);
@@ -247,6 +247,61 @@ test('parallel XOVER rejects incomplete socket responses', function () {
         fclose($server);
     }
 })->throws(NntpException::class, 'incomplete');
+
+test('parallel XOVER drops an incomplete socket and retries the batch', function () {
+    if (! \function_exists('pcntl_fork')) {
+        $this->markTestSkipped('pcntl is required for the replacement NNTP server.');
+    }
+
+    $replacementPid = null;
+    $driver = new ParallelNntpDriver([
+        'host' => 'localhost',
+        'port' => 119,
+        'ssl' => false,
+        'timeout' => 1,
+    ], 1, connector: function () use (&$replacementPid): mixed {
+        [$client, $server] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+        $replacementPid = pcntl_fork();
+
+        if ($replacementPid === 0) {
+            fclose($client);
+            fwrite($server, "200 ready\r\n");
+            fgets($server);
+            fwrite($server, "224 overview follows\r\n1\tRetried\tPoster\tDate\t<retried@test>\r\n.\r\n");
+            fclose($server);
+            exit(0);
+        }
+
+        fclose($server);
+
+        return $client;
+    });
+    [$client, $server] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+    fwrite($server, "224 overview follows\r\n1\tIncomplete\tPoster\tDate\t<incomplete@test>\r\n");
+    injectParallelSockets($driver, [$client]);
+    $readBufferProperty = new ReflectionProperty($driver, 'readBufferSize');
+    $readBufferProperty->setValue($driver, 11);
+
+    try {
+        $overview = $driver->xover(1, 1);
+    } finally {
+        $driver->detach();
+        fclose($server);
+
+        if (\is_int($replacementPid) && $replacementPid > 0) {
+            pcntl_waitpid($replacementPid, $status);
+        }
+    }
+
+    expect($overview)->toBe([
+        1 => [
+            'subject' => 'Retried',
+            'from' => 'Poster',
+            'date' => 'Date',
+            'message_id' => 'retried@test',
+        ],
+    ]);
+});
 
 test('replacement connections authenticate and reselect the active group', function () {
     $server = null;
