@@ -14,6 +14,7 @@ use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\Console\Helper\ProgressBar;
 
 /**
  * Bulk-enriches spots that were indexed via XOVER only (--initial-scan).
@@ -64,6 +65,9 @@ class EnrichSpots extends Command
         $enriched = 0;
         $failed = 0;
         $deleted = 0;
+
+        $progressBar = $this->createEnrichProgressBar($cap, $enriched, $failed, $deleted);
+        $progressBar->start();
 
         while (true) {
             $queryLimit = $limit !== null ? min($batchSize, $limit - $attempted) : $batchSize;
@@ -184,7 +188,8 @@ class EnrichSpots extends Command
                 $spotMutations->delete($deleteIds);
             }
 
-            $this->line("  {$enriched} enriched, {$failed} failed, {$deleted} deleted…");
+            $progressBar->setProgress($attempted);
+            $progressBar->display();
 
             if ($limit !== null && $attempted >= $limit) {
                 break;
@@ -197,6 +202,9 @@ class EnrichSpots extends Command
 
         $nntp->quit();
 
+        $progressBar->finish();
+        $this->newLine();
+
         $this->info("Done. Enriched: {$enriched}, failed (no HEAD): {$failed}, deleted (not fully indexable): {$deleted}.");
 
         return self::SUCCESS;
@@ -207,5 +215,31 @@ class EnrichSpots extends Command
         return Spot::query()
             ->whereNull('xml_signature')
             ->count();
+    }
+
+    private function createEnrichProgressBar(
+        int $max,
+        int &$enriched,
+        int &$failed,
+        int &$deleted,
+    ): ProgressBar {
+        $bar = $this->output->createProgressBar($max);
+        $bar->setBarCharacter('█');
+        $bar->setEmptyBarCharacter('░');
+        $bar->setProgressCharacter('█');
+        $bar->setFormat(
+            ' %current%/%max% [%bar%] %percent:3s%%  enriched: %enriched%  failed: %failed%  deleted: %deleted%',
+        );
+        $bar->setPlaceholderFormatterDefinition('enriched', function () use (&$enriched): string {
+            return (string) $enriched;
+        });
+        $bar->setPlaceholderFormatterDefinition('failed', function () use (&$failed): string {
+            return (string) $failed;
+        });
+        $bar->setPlaceholderFormatterDefinition('deleted', function () use (&$deleted): string {
+            return (string) $deleted;
+        });
+
+        return $bar;
     }
 }
