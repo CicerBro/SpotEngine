@@ -10,7 +10,7 @@ services:
             - .env
         environment:
             SERVER_NAME: ${SERVER_NAME:-:80}
-            DB_HOST: db
+            DB_HOST: pgsql
             DB_PORT: 5432
             REDIS_HOST: valkey
             REDIS_PORT: 6379
@@ -21,10 +21,10 @@ services:
             - caddy_data:/data
             - caddy_config:/config
         depends_on:
-            db:
+            pgsql:
                 condition: service_healthy
 
-    db:
+    pgsql:
         image: postgres:18
         restart: unless-stopped
         environment:
