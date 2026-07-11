@@ -63,7 +63,11 @@ Docker images in this repository are pinned to FrankenPHP PHP 8.5 variants.
     ```bash
     php artisan migrate:fresh --seed
     ```
-6. **Default login**: Use **admin** / **changeme123** to sign in.
+6. **Create the first administrator**:
+    ```bash
+    php artisan spot:admin:create
+    ```
+    The command prompts for unique credentials and refuses to run after an administrator exists.
 
 Then start the stack:
 
@@ -106,7 +110,7 @@ Copy `.env.example` to `.env` and fill in:
 | `SEARCH_DRIVER`                      | `database` (default) or `manticore` (work in progress)           |
 | `CACHE_NZB_RETENTION_DAYS`           | Days to keep cached NZB files before pruning (default `30`)      |
 | `CACHE_IMAGE_RETENTION_DAYS`         | Days to keep cached images before pruning (default `30`)         |
-| `REGISTRATION_OPEN`                  | Allow new user registrations (`true`/`false`)                    |
+| `REGISTRATION_OPEN`                  | Allow new user registrations (default `false`)                   |
 | **Optional (Octane)**                |                                                                  |
 | `OCTANE_SERVER`                      | Octane server: `frankenphp` (default), `roadrunner`, `swoole`    |
 | `OCTANE_HTTPS`                       | Set to `true` when serving over HTTPS so URLs use `https://`     |
