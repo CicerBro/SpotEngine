@@ -257,24 +257,24 @@ class NzbGenerator
     private function yencDecode(string $data): string
     {
         $lines = explode("\n", $data);
-        $decoded = '';
+        $encodedLines = [];
         $inData = false;
 
         foreach ($lines as $line) {
             // Remove CR if present
             $line = rtrim($line, "\r");
 
-            if (str_starts_with($line, '=ybegin')) {
+            if (str_starts_with($line, '=ybegin ')) {
                 $inData = true;
 
                 continue;
             }
 
-            if (str_starts_with($line, '=ypart')) {
+            if (str_starts_with($line, '=ypart ')) {
                 continue;
             }
 
-            if (str_starts_with($line, '=yend')) {
+            if (str_starts_with($line, '=yend ')) {
                 $inData = false;
 
                 continue;
@@ -284,10 +284,9 @@ class NzbGenerator
                 continue;
             }
 
-            // Decode the line
-            $decoded .= $this->yEncLineDecoder->decode($line, rejectIncompleteEscape: false);
+            $encodedLines[] = $line;
         }
 
-        return $decoded;
+        return $this->yEncLineDecoder->decodeLines($encodedLines, rejectIncompleteEscape: false);
     }
 }
