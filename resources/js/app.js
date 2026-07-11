@@ -122,12 +122,18 @@ Alpine.store("spotPreview", {
     mx: 0,
     my: 0,
     src: "",
+    showTimer: null,
+    delayMs: 300,
 
     show(src, mx, my) {
-        this.src = src;
         this.mx = mx;
         this.my = my;
-        this.visible = true;
+        clearTimeout(this.showTimer);
+        this.showTimer = setTimeout(() => {
+            this.showTimer = null;
+            this.src = src;
+            this.visible = true;
+        }, this.delayMs);
     },
 
     move(mx, my) {
@@ -136,6 +142,8 @@ Alpine.store("spotPreview", {
     },
 
     hide() {
+        clearTimeout(this.showTimer);
+        this.showTimer = null;
         this.visible = false;
     },
 });
@@ -144,7 +152,7 @@ Alpine.store("theme").apply();
 
 // Hide preview when mouse leaves the browser window
 document.documentElement.addEventListener("mouseleave", () => {
-    Alpine.store("spotPreview").visible = false;
+    Alpine.store("spotPreview").hide();
 });
 
 Alpine.start();
