@@ -125,7 +125,7 @@ Run once when setting up a new instance:
 php artisan spot:retrieve --initial-scan
 ```
 
-Uses XOVER to bulk-index spots in parallel. This is fast and the newsgroup's full history can be indexed in minutes. Spots are immediately browsable with their core metadata: title, category, size, and poster. Descriptions, images, NZB segments, and signature verification are not yet populated (see below).
+Uses XOVER to bulk-index spots in parallel. With the default configuration, forward ranges are processed newest-first so recent spots become available first. The forward checkpoint is committed only after the complete range succeeds, preventing an interrupted run from skipping older batches. Spots are immediately browsable with their core metadata: title, category, size, and poster. Descriptions, images, NZB segments, and signature verification are not yet populated (see below).
 
 NNTP Pipelining could further speed this up but during development there were some provider issues so this is on the backburner for now.
 
@@ -141,7 +141,7 @@ This fetches the `HEAD` for each unenriched spot in parallel and populates descr
 
 ### 3. Ongoing retrieval
 
-Once the initial scan and enrichment are done, `spot:retrieve` runs on a schedule (every 15 minutes by default). It fetches `HEAD` for all new articles since the last run, getting full X-XML data in a single pass, no separate enrich step needed for new spots.
+Once the initial scan and enrichment are done, `spot:retrieve` runs on a schedule (every 15 minutes by default). It uses XOVER to discover new articles, then fetches each matching article's `HEAD` data before committing it. New spots therefore receive full X-XML metadata in one scheduled pass and do not need a separate enrichment run.
 
 ## Scheduling
 

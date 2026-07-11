@@ -112,16 +112,17 @@ class SpotRetrieverService
         $forwardNewToOld = config('spotengine.retrieval.forward_new_to_old', false);
         $batches = $this->buildBatches($startArticle, $endArticle, $batchSize, $backfill, $forwardNewToOld);
 
-        $saveStateOnlyAfterLastBatch = false;
+        $saveStateOnlyAfterLastBatch = ! $backfill && $forwardNewToOld;
 
-        [
-            'totalProcessed' => $totalProcessed,
-            'totalInserted' => $totalInserted,
-            'highestArticle' => $highestArticle,
-        ] = $this->runBatches($batches, $backfill, $groupInfo, $state, $startArticle, $onBatchComplete, $saveStateOnlyAfterLastBatch);
-
-        $this->nntp->quit();
-        $this->nntp = null;
+        try {
+            [
+                'totalProcessed' => $totalProcessed,
+                'totalInserted' => $totalInserted,
+                'highestArticle' => $highestArticle,
+            ] = $this->runBatches($batches, $backfill, $groupInfo, $state, $startArticle, $onBatchComplete, $saveStateOnlyAfterLastBatch);
+        } finally {
+            $this->closeNntpConnection();
+        }
 
         log_debug('Retrieval complete', ['totalProcessed' => $totalProcessed, 'totalInserted' => $totalInserted, 'lastArticle' => $highestArticle, 'backfill' => $backfill]);
 
@@ -308,7 +309,7 @@ class SpotRetrieverService
      * - The referenced spot exists in the database.
      * - The command is issued within 5 days (432 000 s) of the original posting.
      *
-     * @param  list<array{_moderation: true, command: string, target_message_id: string, poster: string, stamp: int}>  $commands
+     * @param  list<array{_moderation: true, command: string, target_message_id: string, poster: string, stamp: int, is_global_moderator: bool, moderator_key_id: string|null}>  $commands
      */
     protected function processModeration(array $commands): void
     {
@@ -330,6 +331,24 @@ class SpotRetrieverService
 
             if (! ($spot instanceof Spot)) {
                 Log::info('NUKE: target not in database', [
+                    'command' => $cmd['command'],
+                    'target_message_id' => $targetId,
+                    'moderator' => $cmd['poster'],
+                ]);
+
+                continue;
+            }
+
+            $isAuthorized = $cmd['is_global_moderator']
+                || (
+                    $cmd['moderator_key_id'] !== null
+                    && $cmd['moderator_key_id'] !== ''
+                    && $spot->is_verified
+                    && hash_equals((string) $spot->poster_key_id, $cmd['moderator_key_id'])
+                );
+
+            if (! $isAuthorized) {
+                Log::warning('NUKE: authenticated personal dispose does not match spot owner — ignored', [
                     'command' => $cmd['command'],
                     'target_message_id' => $targetId,
                     'moderator' => $cmd['poster'],
@@ -460,11 +479,20 @@ class SpotRetrieverService
         $this->shuttingDown = true;
 
         try {
-            $this->nntp?->quit();
+            $this->closeNntpConnection();
         } catch (\Throwable) {
             // Ignore shutdown errors
         }
+    }
 
+    private function closeNntpConnection(): void
+    {
+        if (! $this->nntp instanceof NntpDriverInterface) {
+            return;
+        }
+
+        $nntp = $this->nntp;
         $this->nntp = null;
+        $nntp->quit();
     }
 }

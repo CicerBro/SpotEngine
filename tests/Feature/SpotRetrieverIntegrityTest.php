@@ -1,0 +1,204 @@
+<?php
+
+declare(strict_types=1);
+
+use App\Models\Spot;
+use App\Models\UsenetState;
+use App\Services\Nntp\Contracts\NntpDriverInterface;
+use App\Services\Nntp\NntpService;
+use App\Services\Nntp\SigningService;
+use App\Services\Nntp\SpotParser;
+use App\Services\OverlappedSpotRetrieverService;
+use App\Services\SpotRetrieverService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
+
+uses(RefreshDatabase::class);
+
+test('newest-first checkpoints only after the complete range succeeds', function () {
+    $state = UsenetState::forNewsgroup('free.pt');
+    $service = new IntegrityTestSpotRetriever;
+    $checkpointObservations = [];
+
+    $result = $service->runForTest(
+        [[71, 100], [41, 70], [11, 40], [1, 10]],
+        $state,
+        saveStateOnlyAfterLastBatch: true,
+        onBatchComplete: function () use (&$checkpointObservations): void {
+            $checkpointObservations[] = UsenetState::query()->where('newsgroup', 'free.pt')->value('last_article_id');
+        },
+    );
+
+    expect($checkpointObservations)->toBe([null, null, null, null])
+        ->and($state->fresh()->last_article_id)->toBe(100)
+        ->and($result['highestArticle'])->toBe(100);
+});
+
+test('interrupted newest-first retrieval leaves its checkpoint unchanged', function () {
+    $state = UsenetState::query()->create([
+        'newsgroup' => 'free.pt',
+        'last_article_id' => 25,
+        'first_article_id' => 1,
+        'last_backfilled_article_id' => 0,
+    ]);
+    $service = new IntegrityTestSpotRetriever;
+    $service->stopAfterFetch = true;
+
+    $service->runForTest(
+        [[71, 100], [41, 70]],
+        $state,
+        saveStateOnlyAfterLastBatch: true,
+    );
+
+    expect($state->fresh()->last_article_id)->toBe(25);
+});
+
+test('forked upsert failures propagate before checkpointing', function () {
+    if (! \function_exists('pcntl_fork')) {
+        $this->markTestSkipped('pcntl is required for the overlapped retriever.');
+    }
+
+    $state = new UsenetState([
+        'newsgroup' => 'free.pt',
+        'last_article_id' => 50,
+        'first_article_id' => 1,
+        'last_backfilled_article_id' => 0,
+    ]);
+    $service = new FailingOverlappedSpotRetriever;
+    $service->setNntpDriver(Mockery::mock(NntpDriverInterface::class)->shouldIgnoreMissing());
+
+    expect(fn () => $service->runForTest([[51, 60]], $state))
+        ->toThrow(RuntimeException::class, 'simulated child upsert failure');
+
+    expect($state->last_article_id)->toBe(50)
+        ->and($state->exists)->toBeFalse();
+});
+
+test('personal moderation cannot delete a spot owned by another verified key', function () {
+    $spot = Spot::factory()->create([
+        'message_id' => 'target@spot.net',
+        'poster_key_id' => 'owner-key',
+        'is_verified' => true,
+        'spot_posted_at' => now()->subHour(),
+    ]);
+    $service = new IntegrityTestSpotRetriever;
+
+    $service->moderate([[
+        '_moderation' => true,
+        'command' => 'delete',
+        'target_message_id' => $spot->message_id,
+        'poster' => 'Attacker',
+        'stamp' => now()->timestamp,
+        'is_global_moderator' => false,
+        'moderator_key_id' => 'different-key',
+    ]]);
+
+    $this->assertModelExists($spot);
+});
+
+test('authenticated global moderation can delete a recent spot', function () {
+    $spot = Spot::factory()->create([
+        'message_id' => 'target@spot.net',
+        'spot_posted_at' => now()->subHour(),
+    ]);
+    $service = new IntegrityTestSpotRetriever;
+
+    $service->moderate([[
+        '_moderation' => true,
+        'command' => 'delete',
+        'target_message_id' => $spot->message_id,
+        'poster' => 'Trusted moderator',
+        'stamp' => now()->timestamp,
+        'is_global_moderator' => true,
+        'moderator_key_id' => null,
+    ]]);
+
+    $this->assertModelMissing($spot);
+});
+
+class IntegrityTestSpotRetriever extends SpotRetrieverService
+{
+    public bool $stopAfterFetch = false;
+
+    public function __construct()
+    {
+        parent::__construct(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService);
+    }
+
+    /**
+     * @param  array<int, array{int, int}>  $batches
+     * @return array{totalProcessed: int, totalInserted: int, highestArticle: int}
+     */
+    public function runForTest(
+        array $batches,
+        UsenetState $state,
+        bool $saveStateOnlyAfterLastBatch,
+        ?callable $onBatchComplete = null,
+    ): array {
+        return $this->runBatches(
+            $batches,
+            false,
+            ['count' => 100, 'first' => 1, 'last' => 100, 'group' => 'free.pt'],
+            $state,
+            1,
+            $onBatchComplete,
+            $saveStateOnlyAfterLastBatch,
+        );
+    }
+
+    /** @param list<array<string, mixed>> $commands */
+    public function moderate(array $commands): void
+    {
+        $this->processModeration($commands);
+    }
+
+    #[Override]
+    protected function fetchBatch(int $batchStart, int $batchEnd): array
+    {
+        if ($this->stopAfterFetch) {
+            $this->shutdown();
+        }
+
+        return [$batchEnd - $batchStart + 1, [], [], $batchEnd];
+    }
+}
+
+class FailingOverlappedSpotRetriever extends OverlappedSpotRetrieverService
+{
+    public function __construct()
+    {
+        parent::__construct(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService);
+    }
+
+    public function setNntpDriver(NntpDriverInterface $driver): void
+    {
+        $this->nntp = $driver;
+    }
+
+    /**
+     * @param  array<int, array{int, int}>  $batches
+     * @return array{totalProcessed: int, totalInserted: int, highestArticle: int}
+     */
+    public function runForTest(array $batches, UsenetState $state): array
+    {
+        return $this->runBatches(
+            $batches,
+            false,
+            ['count' => 100, 'first' => 1, 'last' => 100, 'group' => 'free.pt'],
+            $state,
+            51,
+            null,
+        );
+    }
+
+    #[Override]
+    protected function fetchBatch(int $batchStart, int $batchEnd): array
+    {
+        return [10, [['message_id' => 'child-failure@spot.net']], [], $batchEnd];
+    }
+
+    #[Override]
+    protected function batchUpsert(array $spots): int
+    {
+        throw new RuntimeException('simulated child upsert failure');
+    }
+}
