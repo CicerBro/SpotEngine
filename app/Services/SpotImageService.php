@@ -107,8 +107,7 @@ class SpotImageService
      */
     public function cachePath(array $segments): string
     {
-        $version = (int) config('spotengine.cache.image_version', 2);
-        $cacheKey = "spot-image-v{$version}\0" . implode("\0", $segments);
+        $cacheKey = implode("\0", $segments);
 
         return nestedCachePath(
             (string) config('spotengine.cache.image_path'),

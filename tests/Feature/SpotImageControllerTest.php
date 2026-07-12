@@ -23,7 +23,7 @@ test('spot image returns a non-cacheable placeholder when no preview exists', fu
     $response->assertSee('No Image');
 });
 
-test('spot image responses use validated metadata and versioned cache headers', function () {
+test('spot image responses use validated metadata and cache headers', function () {
     $user = User::factory()->create();
     $spot = Spot::factory()->withImage()->create();
     $imageData = (string) base64_decode(
@@ -40,10 +40,7 @@ test('spot image responses use validated metadata and versioned cache headers', 
     ]);
     $this->app->instance(SpotImageService::class, $imageService);
 
-    $response = $this->actingAs($user)->get(route('spots.image', [
-        'spot' => $spot,
-        'v' => config('spotengine.cache.image_version'),
-    ]));
+    $response = $this->actingAs($user)->get(route('spots.image', $spot));
 
     $response->assertSuccessful();
     $response->assertHeader('Content-Type', 'image/png');

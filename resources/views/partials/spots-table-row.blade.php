@@ -4,7 +4,7 @@ $badgeCategory = $spot->resolveBadgeCategory($categoriesByCode ?? collect());
 $genreLabel = $spot->resolveGenreLabel($categoriesByCode ?? collect());
 $rootColorVar = $rootCategory?->cssColorVar() ?? '--color-cat-image';
 $rowBgClass = $rootCategory?->rowBackgroundClass() ?? 'hover:bg-gray-100/60';
-$imageUrl = route('spots.image', ['spot' => $spot, 'v' => config('spotengine.cache.image_version')]);
+$imageUrl = route('spots.image', $spot);
 @endphp
 
 {{-- Desktop row --}}

@@ -13,7 +13,6 @@ use Illuminate\Support\Facades\File;
 beforeEach(function () {
     $this->imageCacheDirectory = storage_path('framework/testing/spot-images-' . bin2hex(random_bytes(4)));
     config()->set('spotengine.cache.image_path', $this->imageCacheDirectory);
-    config()->set('spotengine.cache.image_version', 2);
 
     /** @var array{expected_png_base64: string, spotnet_multipart_body_base64: list<string>, corrupt_cached_payload_base64: string} $fixture */
     $fixture = require base_path('tests/Fixtures/Nntp/spot-image-payloads.php');
@@ -29,7 +28,7 @@ afterEach(function () {
     File::deleteDirectory($this->imageCacheDirectory);
 });
 
-test('multipart previews are fetched, validated, and cached under a versioned key', function () {
+test('multipart previews are fetched, validated, and cached', function () {
     $spot = previewSpot(['part-1@spot.net', 'part-2@spot.net']);
     $driver = previewDriver($spot->image_segments, $this->articleBodies);
     $nntpService = previewNntpService($driver);
