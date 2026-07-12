@@ -110,4 +110,17 @@ return [
 
     /** Whether new user registration is allowed. */
     'registration_open' => (bool) env('REGISTRATION_OPEN', false),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Spotweb external black/whitelist
+    |--------------------------------------------------------------------------
+    | RSA modulus lists from Spotweb/Spotnet clients. Each <Key> body is hashed
+    | into a spotter ID (poster_key_id). Blacklisted spotters are rejected;
+    | whitelisted spotters bypass blacklist matches.
+    */
+    'lists' => [
+        'blacklist_url' => env('SPOTENGINE_BLACKLIST_URL', 'https://spotlist.store/spotnet/blacklist.xml'),
+        'whitelist_url' => env('SPOTENGINE_WHITELIST_URL', 'https://spotlist.store/spotnet/whitelist.xml'),
+    ],
 ];
