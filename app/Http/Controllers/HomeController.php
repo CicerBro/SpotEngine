@@ -15,8 +15,10 @@ use App\Services\Search\Contracts\SearchDriver;
 use App\Services\SpotEnricher;
 use App\Services\SpotImageService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Pagination\CursorPaginator;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\AcceptHeader;
@@ -35,6 +37,9 @@ class HomeController extends Controller
     public function index(Request $request): View|JsonResponse
     {
         $criteria = $this->searchCriteria($request);
+
+        /** @var User|null $user */
+        $user = $request->user();
 
         /** @var array{spots: CursorPaginator<int, Spot>, spotCount: int|null} $listing */
         $listing = $this->listingCache->remember($request, function () use ($request, $criteria): array {
@@ -55,6 +60,7 @@ class HomeController extends Controller
                 'spots' => $listing['spots'],
                 'spotCount' => 0,
                 'categoriesByCode' => $categoriesByCode,
+                'spotsReadUntil' => $user?->spots_read_until,
             ])->fragment('spot-rows');
 
             return response()->json([
@@ -73,7 +79,22 @@ class HomeController extends Controller
             'currentCategory' => $request->cat,
             'search' => $request->q,
             'subcats' => (array) $request->subcat,
+            'unreadOnly' => $request->boolean('new'),
+            'spotsReadUntil' => $user?->spots_read_until,
         ]);
+    }
+
+    public function markAllSpotsRead(Request $request): RedirectResponse
+    {
+        /** @var User $user */
+        $user = $request->user();
+        $user->markAllSpotsRead();
+
+        Auth::setUser($user->fresh());
+
+        return redirect()
+            ->route('home', $request->only(['cat', 'subcat', 'q', 'search_in', 'per_page']))
+            ->with('success', 'All spots marked as read.');
     }
 
     public function show(Spot $spot): View
@@ -169,6 +190,9 @@ class HomeController extends Controller
 
     private function searchCriteria(Request $request): SpotSearchCriteria
     {
+        /** @var User|null $user */
+        $user = $request->user();
+
         return new SpotSearchCriteria(
             term: $request->filled('q') ? (string) $request->q : null,
             field: SearchField::fromRequest($request->search_in),
@@ -179,6 +203,8 @@ class HomeController extends Controller
             )),
             perPage: max(10, min(100, $request->integer('per_page', 50))),
             cursor: $request->filled('cursor') ? (string) $request->cursor : null,
+            unreadOnly: $request->boolean('new'),
+            unreadSince: $user?->spots_read_until,
         );
     }
 

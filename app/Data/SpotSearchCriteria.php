@@ -25,5 +25,7 @@ final readonly class SpotSearchCriteria
         public array $metadataTermGroups = [],
         public ?int $offset = null,
         public ?string $cursor = null,
+        public bool $unreadOnly = false,
+        public ?\DateTimeInterface $unreadSince = null,
     ) {}
 }

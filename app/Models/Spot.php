@@ -237,6 +237,16 @@ class Spot extends Model
     }
 
     #[Scope]
+    protected function unreadSince(Builder $query, ?\DateTimeInterface $readUntil): void
+    {
+        if ($readUntil === null) {
+            return;
+        }
+
+        $query->where('spot_posted_at', '>', $readUntil);
+    }
+
+    #[Scope]
     protected function postedAfter(Builder $query, \DateTimeInterface $date): Builder
     {
         return $query->where('spot_posted_at', '>=', $date);

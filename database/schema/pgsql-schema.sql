@@ -326,17 +326,18 @@ CREATE TABLE public.users (
     username character varying(255) NOT NULL,
     name character varying(255) NOT NULL,
     email character varying(255) NOT NULL,
-    email_verified_at timestamp(0) without time zone,
     password character varying(255) NOT NULL,
     is_admin boolean DEFAULT false NOT NULL,
     api_token character varying(32),
-    last_login_at timestamp(0) without time zone,
     remember_token character varying(100),
-    created_at timestamp(0) without time zone,
-    updated_at timestamp(0) without time zone,
     two_factor_secret text,
     two_factor_recovery_codes text,
-    two_factor_confirmed_at timestamp(0) without time zone
+    email_verified_at timestamp(0) without time zone,
+    last_login_at timestamp(0) without time zone,
+    spots_read_until timestamp(0) without time zone,
+    two_factor_confirmed_at timestamp(0) without time zone,
+    created_at timestamp(0) without time zone,
+    updated_at timestamp(0) without time zone
 );
 
 
@@ -744,6 +745,8 @@ COPY public.migrations (id, migration, batch) FROM stdin;
 22	2026_07_12_010246_create_spot_bans_table	3
 23	2026_07_12_011451_add_kind_to_spot_bans_table	4
 24	2026_07_12_105901_rename_database_indexes_to_laravel_convention	5
+25	2026_07_12_111529_add_spots_read_until_to_users_table	6
+26	2026_07_12_111829_reorder_users_table_timestamp_columns	7
 \.
 
 
@@ -751,7 +754,7 @@ COPY public.migrations (id, migration, batch) FROM stdin;
 -- Name: migrations_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.migrations_id_seq', 24, true);
+SELECT pg_catalog.setval('public.migrations_id_seq', 26, true);
 
 
 --

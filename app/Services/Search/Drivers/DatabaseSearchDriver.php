@@ -166,6 +166,10 @@ class DatabaseSearchDriver implements SearchDriver
             $this->whereMetadataContainsAny($query, $metadataTerms);
         }
 
+        if ($criteria->unreadOnly) {
+            $query->unreadSince($criteria->unreadSince);
+        }
+
         return $query
             ->orderByDesc('spot_posted_at')
             ->orderByDesc('id');
