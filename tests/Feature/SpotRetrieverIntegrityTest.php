@@ -9,6 +9,7 @@ use App\Services\Nntp\Contracts\NntpDriverInterface;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
+use App\Services\SpotBanService;
 use App\Services\SpotMutationService;
 use App\Services\SpotRetrieverService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -167,6 +168,7 @@ class IntegrityTestSpotRetriever extends SpotRetrieverService
             new NntpService(config('spotengine.nntp')),
             new SigningService,
             app(SpotMutationService::class),
+            app(SpotBanService::class),
         );
     }
 
@@ -225,6 +227,7 @@ class FailingAsyncSpotRetriever extends AsyncSpotRetrieverService
             new NntpService(config('spotengine.nntp')),
             new SigningService,
             app(SpotMutationService::class),
+            app(SpotBanService::class),
         );
     }
 

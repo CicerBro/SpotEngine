@@ -517,16 +517,7 @@ class SpotParser
 
     private function calculateSpotterId(string $preparedModulus): string
     {
-        $modulus = base64_decode(str_replace(['-p', '-s', '-e'], ['+', '/', '='], $preparedModulus), true);
-
-        if ($modulus === false) {
-            return '';
-        }
-
-        $checksum = crc32($modulus);
-        $littleEndian = pack('V', $checksum);
-
-        return str_replace(['/', '+', '='], '', base64_encode($littleEndian));
+        return SpotterId::fromModulus($preparedModulus) ?? '';
     }
 
     private function sanitizeWebsite(string $website): ?string

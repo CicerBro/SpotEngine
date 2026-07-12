@@ -29,6 +29,7 @@ class SpotRetrieverService
         private readonly NntpService $nntpService,
         private readonly SigningService $signer,
         private readonly SpotMutationService $spotMutations,
+        private readonly SpotBanService $spotBans,
     ) {}
 
     /**
@@ -251,6 +252,10 @@ class SpotRetrieverService
                 continue;
             }
 
+            if ($this->spotBans->isBanned($result['poster'] ?? null, $result['tag'] ?? null)) {
+                continue;
+            }
+
             $articleNumberToSpotIdx[$articleNum] = \count($spots);
             $spots[] = $result;
         }
@@ -258,6 +263,15 @@ class SpotRetrieverService
         if (! $this->initialScan && $articleNumberToSpotIdx !== []) {
             $spots = $this->enrichWithHead($spots, $articleNumberToSpotIdx);
         }
+
+        $spots = array_values(array_filter(
+            $spots,
+            fn (array $spot): bool => ! $this->spotBans->isBanned(
+                $spot['poster'] ?? null,
+                $spot['tag'] ?? null,
+                $spot['poster_key_id'] ?? null,
+            ),
+        ));
 
         return [\count($overview), $spots, $moderationCommands, $batchEnd];
     }

@@ -5,11 +5,12 @@ declare(strict_types=1);
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
+use App\Services\SpotBanService;
 use App\Services\SpotMutationService;
 use App\Services\SpotRetrieverService;
 
 test('buildBatches with forwardNewToOld true returns batches newest first', function () {
-    $service = new SpotRetrieverService(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService, app(SpotMutationService::class));
+    $service = new SpotRetrieverService(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService, app(SpotMutationService::class), app(SpotBanService::class));
     $method = new ReflectionMethod($service, 'buildBatches');
     $method->setAccessible(true);
 
@@ -23,7 +24,7 @@ test('buildBatches with forwardNewToOld true returns batches newest first', func
 });
 
 test('buildBatches with forwardNewToOld false returns batches oldest first', function () {
-    $service = new SpotRetrieverService(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService, app(SpotMutationService::class));
+    $service = new SpotRetrieverService(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService, app(SpotMutationService::class), app(SpotBanService::class));
     $method = new ReflectionMethod($service, 'buildBatches');
     $method->setAccessible(true);
 
@@ -37,7 +38,7 @@ test('buildBatches with forwardNewToOld false returns batches oldest first', fun
 });
 
 test('deduplicateSpotsByMessageId keeps only last message id occurrence and drops missing ids', function () {
-    $service = new SpotRetrieverService(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService, app(SpotMutationService::class));
+    $service = new SpotRetrieverService(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService, app(SpotMutationService::class), app(SpotBanService::class));
     $method = new ReflectionMethod($service, 'deduplicateSpotsByMessageId');
     $method->setAccessible(true);
 
