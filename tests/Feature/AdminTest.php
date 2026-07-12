@@ -61,9 +61,9 @@ test('admin can create user', function () {
     $admin = User::factory()->admin()->create();
 
     $response = $this->actingAs($admin)->post(route('admin.users.create'), [
-        'username' => 'newuser',
+        'username' => 'NewUser',
         'name' => 'New User',
-        'email' => 'newuser@example.com',
+        'email' => 'NewUser@Example.com',
         'password' => 'password123',
         'is_admin' => false,
     ]);

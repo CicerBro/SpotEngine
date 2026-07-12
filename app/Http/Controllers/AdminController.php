@@ -12,6 +12,7 @@ use App\Services\SpotMutationService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Str;
 use Illuminate\View\View;
 
 class AdminController extends Controller
@@ -82,6 +83,11 @@ class AdminController extends Controller
 
     public function createUser(Request $request): RedirectResponse
     {
+        $request->merge([
+            'username' => Str::lower((string) $request->input('username')),
+            'email' => Str::lower((string) $request->input('email')),
+        ]);
+
         $validated = $request->validate([
             'username' => ['required', 'string', 'min:3', 'unique:users'],
             'name' => ['required', 'string'],

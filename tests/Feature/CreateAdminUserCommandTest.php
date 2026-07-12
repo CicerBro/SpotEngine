@@ -9,9 +9,9 @@ uses(RefreshDatabase::class);
 
 test('the first administrator is created with explicitly supplied credentials', function () {
     $this->artisan('spot:admin:create')
-        ->expectsQuestion('Username', 'first-admin')
+        ->expectsQuestion('Username', 'First-Admin')
         ->expectsQuestion('Name', 'First Administrator')
-        ->expectsQuestion('Email address', 'admin@example.com')
+        ->expectsQuestion('Email address', 'Admin@Example.com')
         ->expectsQuestion('Password', 'A-secure-password-123!')
         ->expectsQuestion('Confirm password', 'A-secure-password-123!')
         ->expectsOutput('Administrator [first-admin] created.')
@@ -20,6 +20,7 @@ test('the first administrator is created with explicitly supplied credentials', 
     $admin = User::query()->where('username', 'first-admin')->firstOrFail();
 
     expect($admin->is_admin)->toBeTrue()
+        ->and($admin->email)->toBe('admin@example.com')
         ->and(password_verify('A-secure-password-123!', $admin->password))->toBeTrue();
 });
 
