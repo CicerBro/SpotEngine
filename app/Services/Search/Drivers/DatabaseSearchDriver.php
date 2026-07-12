@@ -202,7 +202,7 @@ class DatabaseSearchDriver implements SearchDriver
     }
 
     /**
-     * Title search against idx_spots_fts_title_simple.
+     * Title search against spots_fts_title_simple_index.
      * Uses 'simple' dict — "candy" is exact, "candy*" enables prefix.
      */
     private function applyTitleSearch(Builder $query, string $term): Builder
@@ -221,7 +221,7 @@ class DatabaseSearchDriver implements SearchDriver
     }
 
     /**
-     * Description-only search against idx_spots_fts_description.
+     * Description-only search against spots_fts_description_index.
      * Uses 'english' dict so stemmed forms are found ("run" → "running").
      */
     private function applyDescriptionSearch(Builder $query, string $term): Builder
@@ -235,7 +235,7 @@ class DatabaseSearchDriver implements SearchDriver
     /**
      * Title + description search.
      *
-     * No wildcards: single scan on the existing idx_spots_fts combined index.
+     * No wildcards: single scan on the existing spots_fts_title_description_index.
      * With wildcards: bitmap OR across title (simple) and description (english).
      */
     private function applyBothSearch(Builder $query, string $term): Builder
