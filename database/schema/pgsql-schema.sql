@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 1lJZCzCPBPHmDOtQnepZscbiuSoPa0lvldHFnVlnC8FaPsY2mRd2ga1xBBy6BRW
+\restrict uvRoEdMJdZp3yDkN9nO9WRpyeCRRGZNv9mdBsGm0lhn3dbjNRE7SUzBTctDuCOh
 
 -- Dumped from database version 18.4 (Debian 18.4-1.pgdg13+1)
 -- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg13+1)
@@ -146,6 +146,40 @@ CREATE TABLE public.sessions (
     payload text NOT NULL,
     last_activity integer NOT NULL
 );
+
+
+--
+-- Name: spot_bans; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.spot_bans (
+    id bigint NOT NULL,
+    type character varying(20) NOT NULL,
+    name character varying(255),
+    value character varying(255) NOT NULL,
+    created_at timestamp(0) without time zone,
+    updated_at timestamp(0) without time zone,
+    kind character varying(20) DEFAULT 'blacklist'::character varying NOT NULL
+);
+
+
+--
+-- Name: spot_bans_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+--
+
+CREATE SEQUENCE public.spot_bans_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: spot_bans_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+--
+
+ALTER SEQUENCE public.spot_bans_id_seq OWNED BY public.spot_bans.id;
 
 
 --
@@ -347,6 +381,13 @@ ALTER TABLE ONLY public.migrations ALTER COLUMN id SET DEFAULT nextval('public.m
 
 
 --
+-- Name: spot_bans id; Type: DEFAULT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.spot_bans ALTER COLUMN id SET DEFAULT nextval('public.spot_bans_id_seq'::regclass);
+
+
+--
 -- Name: spots id; Type: DEFAULT; Schema: public; Owner: -
 --
 
@@ -428,6 +469,22 @@ ALTER TABLE ONLY public.password_reset_tokens
 
 ALTER TABLE ONLY public.sessions
     ADD CONSTRAINT sessions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: spot_bans spot_bans_kind_type_value_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.spot_bans
+    ADD CONSTRAINT spot_bans_kind_type_value_unique UNIQUE (kind, type, value);
+
+
+--
+-- Name: spot_bans spot_bans_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.spot_bans
+    ADD CONSTRAINT spot_bans_pkey PRIMARY KEY (id);
 
 
 --
@@ -526,41 +583,6 @@ CREATE INDEX categories_parent_code_index ON public.categories USING btree (pare
 
 
 --
--- Name: spots_fts_title_description_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX spots_fts_title_description_index ON public.spots USING gin (to_tsvector('english'::regconfig, (((title)::text || ' '::text) || COALESCE(description, ''::text))));
-
-
---
--- Name: spots_fts_description_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX spots_fts_description_index ON public.spots USING gin (to_tsvector('english'::regconfig, COALESCE(description, ''::text)));
-
-
---
--- Name: spots_fts_title_simple_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX spots_fts_title_simple_index ON public.spots USING gin (to_tsvector('simple'::regconfig, (title)::text));
-
-
---
--- Name: spots_subcategories_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX spots_subcategories_index ON public.spots USING gin (subcategories);
-
-
---
--- Name: spots_unenriched_index; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX spots_unenriched_index ON public.spots USING btree (id) WHERE (xml_signature IS NULL);
-
-
---
 -- Name: sessions_last_activity_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -572,6 +594,13 @@ CREATE INDEX sessions_last_activity_index ON public.sessions USING btree (last_a
 --
 
 CREATE INDEX sessions_user_id_index ON public.sessions USING btree (user_id);
+
+
+--
+-- Name: spot_bans_kind_type_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX spot_bans_kind_type_index ON public.spot_bans USING btree (kind, type);
 
 
 --
@@ -589,6 +618,27 @@ CREATE INDEX spots_category_code_index ON public.spots USING btree (category_cod
 
 
 --
+-- Name: spots_fts_description_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX spots_fts_description_index ON public.spots USING gin (to_tsvector('english'::regconfig, COALESCE(description, ''::text)));
+
+
+--
+-- Name: spots_fts_title_description_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX spots_fts_title_description_index ON public.spots USING gin (to_tsvector('english'::regconfig, (((title)::text || ' '::text) || COALESCE(description, ''::text))));
+
+
+--
+-- Name: spots_fts_title_simple_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX spots_fts_title_simple_index ON public.spots USING gin (to_tsvector('simple'::regconfig, (title)::text));
+
+
+--
 -- Name: spots_listing_cursor_index; Type: INDEX; Schema: public; Owner: -
 --
 
@@ -600,6 +650,20 @@ CREATE INDEX spots_listing_cursor_index ON public.spots USING btree (spot_posted
 --
 
 CREATE INDEX spots_poster_index ON public.spots USING btree (poster);
+
+
+--
+-- Name: spots_subcategories_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX spots_subcategories_index ON public.spots USING gin (subcategories);
+
+
+--
+-- Name: spots_unenriched_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX spots_unenriched_index ON public.spots USING btree (id) WHERE (xml_signature IS NULL);
 
 
 --
@@ -630,13 +694,13 @@ ALTER TABLE ONLY public.user_filters
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 1lJZCzCPBPHmDOtQnepZscbiuSoPa0lvldHFnVlnC8FaPsY2mRd2ga1xBBy6BRW
+\unrestrict uvRoEdMJdZp3yDkN9nO9WRpyeCRRGZNv9mdBsGm0lhn3dbjNRE7SUzBTctDuCOh
 
 --
 -- PostgreSQL database dump
 --
 
-\restrict E8LQhD0ZqwuSthJgAj2mS67hJivqghvuPDRSdcd7FVJAm6Vr1kLh7XGUQ87sIYM
+\restrict 64a7NPbtNUvrZ5ey0SdUKShVZvvDWvWsJ4k2YgdEjEyvf0hYfvlmumoWvSDCYjf
 
 -- Dumped from database version 18.4 (Debian 18.4-1.pgdg13+1)
 -- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg13+1)
@@ -677,7 +741,9 @@ COPY public.migrations (id, migration, batch) FROM stdin;
 17	2026_07_11_102112_add_spot_listing_cursor_index_to_spots_table	1
 18	2026_07_11_103822_drop_redundant_spot_posted_at_indexes_from_spots_table	1
 19	2026_07_11_140656_drop_image_segment_from_spots_table	2
-20	2026_07_12_105901_rename_database_indexes_to_laravel_convention	3
+22	2026_07_12_010246_create_spot_bans_table	3
+23	2026_07_12_011451_add_kind_to_spot_bans_table	4
+24	2026_07_12_105901_rename_database_indexes_to_laravel_convention	5
 \.
 
 
@@ -685,12 +751,12 @@ COPY public.migrations (id, migration, batch) FROM stdin;
 -- Name: migrations_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.migrations_id_seq', 20, true);
+SELECT pg_catalog.setval('public.migrations_id_seq', 24, true);
 
 
 --
 -- PostgreSQL database dump complete
 --
 
-\unrestrict E8LQhD0ZqwuSthJgAj2mS67hJivqghvuPDRSdcd7FVJAm6Vr1kLh7XGUQ87sIYM
+\unrestrict 64a7NPbtNUvrZ5ey0SdUKShVZvvDWvWsJ4k2YgdEjEyvf0hYfvlmumoWvSDCYjf
 
