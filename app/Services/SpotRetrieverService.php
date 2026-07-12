@@ -240,6 +240,10 @@ class SpotRetrieverService
                 continue;
             }
 
+            if (! $this->isWithinRetrievalWindow($result)) {
+                continue;
+            }
+
             $articleNumberToSpotIdx[$articleNum] = \count($spots);
             $spots[] = $result;
         }
@@ -383,6 +387,32 @@ class SpotRetrieverService
         if ($deleteIds !== []) {
             $this->spotMutations->delete($deleteIds);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $spot
+     */
+    protected function isWithinRetrievalWindow(array $spot): bool
+    {
+        $minimumTimestamp = (int) config('spotengine.retrieval.retrieve_newer_than', 1290578400);
+
+        if ($minimumTimestamp <= 0) {
+            return true;
+        }
+
+        $postedAt = $spot['spot_posted_at'] ?? null;
+
+        if (! is_string($postedAt) || $postedAt === '') {
+            return false;
+        }
+
+        $timestamp = strtotime($postedAt);
+
+        if ($timestamp === false) {
+            return false;
+        }
+
+        return $timestamp > $minimumTimestamp;
     }
 
     /** @param list<array<string, mixed>> $spots */
