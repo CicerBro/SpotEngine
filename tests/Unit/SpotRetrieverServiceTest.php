@@ -9,26 +9,12 @@ use App\Services\SpotBanService;
 use App\Services\SpotMutationService;
 use App\Services\SpotRetrieverService;
 
-test('buildBatches with forwardNewToOld true returns batches newest first', function () {
+test('buildBatches returns batches oldest first', function () {
     $service = new SpotRetrieverService(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService, app(SpotMutationService::class), app(SpotBanService::class));
     $method = new ReflectionMethod($service, 'buildBatches');
     $method->setAccessible(true);
 
-    $batches = $method->invoke($service, 1, 100, 30, false, true);
-
-    expect($batches)->toHaveCount(4);
-    expect($batches[0])->toBe([71, 100]);
-    expect($batches[1])->toBe([41, 70]);
-    expect($batches[2])->toBe([11, 40]);
-    expect($batches[3])->toBe([1, 10]);
-});
-
-test('buildBatches with forwardNewToOld false returns batches oldest first', function () {
-    $service = new SpotRetrieverService(new SpotParser, new NntpService(config('spotengine.nntp')), new SigningService, app(SpotMutationService::class), app(SpotBanService::class));
-    $method = new ReflectionMethod($service, 'buildBatches');
-    $method->setAccessible(true);
-
-    $batches = $method->invoke($service, 1, 100, 30, false, false);
+    $batches = $method->invoke($service, 1, 100, 30);
 
     expect($batches)->toHaveCount(4);
     expect($batches[0])->toBe([1, 30]);

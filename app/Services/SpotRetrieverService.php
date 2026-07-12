@@ -111,17 +111,14 @@ class SpotRetrieverService
         }
 
         $batchSize = min(config('spotengine.retrieval.batch_size', 20000), 20000);
-        $forwardNewToOld = config('spotengine.retrieval.forward_new_to_old', false);
-        $batches = $this->buildBatches($startArticle, $endArticle, $batchSize, $backfill, $forwardNewToOld);
-
-        $saveStateOnlyAfterLastBatch = ! $backfill && $forwardNewToOld;
+        $batches = $this->buildBatches($startArticle, $endArticle, $batchSize);
 
         try {
             [
                 'totalProcessed' => $totalProcessed,
                 'totalInserted' => $totalInserted,
                 'highestArticle' => $highestArticle,
-            ] = $this->runBatches($batches, $backfill, $groupInfo, $state, $startArticle, $onBatchComplete, $saveStateOnlyAfterLastBatch);
+            ] = $this->runBatches($batches, $backfill, $groupInfo, $state, $startArticle, $onBatchComplete);
         } finally {
             $this->closeNntpConnection();
         }
@@ -147,20 +144,13 @@ class SpotRetrieverService
      *
      * @return array<int, array{int, int}>
      */
-    protected function buildBatches(int $startArticle, int $endArticle, int $batchSize, bool $backfill, bool $forwardNewToOld): array
+    protected function buildBatches(int $startArticle, int $endArticle, int $batchSize): array
     {
         $batches = [];
 
-        if ($backfill || $forwardNewToOld) {
-            for ($bEnd = $endArticle; $bEnd >= $startArticle; $bEnd -= $batchSize) {
-                $bStart = max($bEnd - $batchSize + 1, $startArticle);
-                $batches[] = [$bStart, $bEnd];
-            }
-        } else {
-            for ($bStart = $startArticle; $bStart <= $endArticle; $bStart += $batchSize) {
-                $bEnd = min($bStart + $batchSize - 1, $endArticle);
-                $batches[] = [$bStart, $bEnd];
-            }
+        for ($bStart = $startArticle; $bStart <= $endArticle; $bStart += $batchSize) {
+            $bEnd = min($bStart + $batchSize - 1, $endArticle);
+            $batches[] = [$bStart, $bEnd];
         }
 
         return $batches;
@@ -174,7 +164,7 @@ class SpotRetrieverService
      * @param  array{count: int, first: int, last: int, group: string}  $groupInfo
      * @return array{totalProcessed: int, totalInserted: int, highestArticle: int}
      */
-    protected function runBatches(array $batches, bool $backfill, array $groupInfo, UsenetState $state, int $startArticle, ?callable $onBatchComplete, bool $saveStateOnlyAfterLastBatch = false): array
+    protected function runBatches(array $batches, bool $backfill, array $groupInfo, UsenetState $state, int $startArticle, ?callable $onBatchComplete): array
     {
         $totalProcessed = 0;
         $totalInserted = 0;
@@ -195,13 +185,7 @@ class SpotRetrieverService
                 $onBatchComplete($batchStart, $batchEnd, $processed, $parsed, $inserted);
             }
 
-            if (! $saveStateOnlyAfterLastBatch) {
-                $this->saveState($state, $backfill, $batchStart, $highestArticle, $groupInfo['first']);
-            }
-        }
-
-        if ($saveStateOnlyAfterLastBatch && ! $this->shuttingDown) {
-            $this->saveState($state, false, $startArticle, $highestArticle, $groupInfo['first']);
+            $this->saveState($state, $backfill, $batchStart, $highestArticle, $groupInfo['first']);
         }
 
         return ['totalProcessed' => $totalProcessed, 'totalInserted' => $totalInserted, 'highestArticle' => $highestArticle];

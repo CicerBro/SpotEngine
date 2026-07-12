@@ -35,8 +35,6 @@ class RetrieveSpots extends Command implements Isolatable
             return $exitCode;
         }
 
-        $this->warnAboutNewToOldCheckpointing();
-
         if (function_exists('pcntl_async_signals')) {
             pcntl_async_signals(true);
             pcntl_signal(SIGINT, $service->shutdown(...));
@@ -141,28 +139,6 @@ class RetrieveSpots extends Command implements Isolatable
         }
 
         return null;
-    }
-
-    /**
-     * Forward retrieval with newest-to-oldest ordering only persists usenet_states
-     * after the full run completes. Warn so operators do not quit halfway.
-     */
-    private function warnAboutNewToOldCheckpointing(): void
-    {
-        if ($this->option('backfill') || ! config('spotengine.retrieval.forward_new_to_old', false)) {
-            return;
-        }
-
-        $this->newLine();
-        $this->components->warn('Newest-to-oldest retrieval is enabled (RETRIEVAL_FORWARD_NEW_TO_OLD).');
-        $this->line('  Checkpointing runs only when this command exits successfully — not after each batch.');
-        $this->line('  Do not quit halfway (Ctrl+C). Spots already inserted remain in the database, but');
-        $this->line('  usenet_states stays empty and the next run cannot resume where you left off.');
-        if ($this->option('initial-scan')) {
-            $this->line('  Initial scans can take hours; let the run finish and wait for "Retrieval complete."');
-        }
-        $this->line('  If unwanted, disable it in .env with RETRIEVAL_FORWARD_NEW_TO_OLD=false and run artisan config:cache again.');
-        $this->newLine();
     }
 
     /**

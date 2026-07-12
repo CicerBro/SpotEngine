@@ -28,10 +28,10 @@ class AsyncSpotRetrieverService extends SpotRetrieverService
      * @return array{totalProcessed: int, totalInserted: int, highestArticle: int}
      */
     #[\Override]
-    protected function runBatches(array $batches, bool $backfill, array $groupInfo, UsenetState $state, int $startArticle, ?callable $onBatchComplete, bool $saveStateOnlyAfterLastBatch = false): array
+    protected function runBatches(array $batches, bool $backfill, array $groupInfo, UsenetState $state, int $startArticle, ?callable $onBatchComplete): array
     {
         if (! \function_exists('pcntl_fork')) {
-            return parent::runBatches($batches, $backfill, $groupInfo, $state, $startArticle, $onBatchComplete, $saveStateOnlyAfterLastBatch);
+            return parent::runBatches($batches, $backfill, $groupInfo, $state, $startArticle, $onBatchComplete);
         }
 
         $totalProcessed = 0;
@@ -54,7 +54,6 @@ class AsyncSpotRetrieverService extends SpotRetrieverService
             $groupInfo,
             $state,
             $onBatchComplete,
-            $saveStateOnlyAfterLastBatch
         ): void {
             $totalInserted += $inserted;
             $totalProcessed += $prevBatch['processed'];
@@ -73,9 +72,7 @@ class AsyncSpotRetrieverService extends SpotRetrieverService
                 );
             }
 
-            if (! $saveStateOnlyAfterLastBatch) {
-                $this->saveState($state, $backfill, $prevBatch['batchStart'], $highestArticle, $groupInfo['first']);
-            }
+            $this->saveState($state, $backfill, $prevBatch['batchStart'], $highestArticle, $groupInfo['first']);
         };
 
         foreach ($batches as [$batchStart, $batchEnd]) {
@@ -172,10 +169,6 @@ class AsyncSpotRetrieverService extends SpotRetrieverService
         if ($prevChildPid !== null) {
             $inserted = $this->awaitUpsertChild($prevChildPid, $prevReadPipe);
             $commitPrev($inserted);
-        }
-
-        if ($saveStateOnlyAfterLastBatch && ! $this->shuttingDown) {
-            $this->saveState($state, false, $startArticle, $highestArticle, $groupInfo['first']);
         }
 
         return ['totalProcessed' => $totalProcessed, 'totalInserted' => $totalInserted, 'highestArticle' => $highestArticle];

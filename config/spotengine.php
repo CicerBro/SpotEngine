@@ -68,16 +68,10 @@ return [
     |   handles large ranges well. Not every slot holds an article (gaps,
     |   cancelled posts), so actual HEAD requests are typically 60-80% of
     |   this number.
-    |
-    |   forward_new_to_old: when true, normal (forward) retrieval fetches
-    |   from newest to oldest by article ID. When false, fetches old to new.
-    |   State is only persisted after the full range is processed when using
-    |   new-to-old order.
     */
     'retrieval' => [
         'batch_size' => (int) env('RETRIEVAL_BATCH_SIZE', 5000),
         'memory_limit' => env('RETRIEVAL_MEMORY_LIMIT', '1G'),
-        'forward_new_to_old' => (bool) env('RETRIEVAL_FORWARD_NEW_TO_OLD', true),
     ],
 
     /*

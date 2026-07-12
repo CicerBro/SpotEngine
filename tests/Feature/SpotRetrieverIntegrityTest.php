@@ -16,26 +16,25 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-test('newest-first checkpoints only after the complete range succeeds', function () {
+test('old-to-new retrieval checkpoints after each completed batch', function () {
     $state = UsenetState::forNewsgroup('free.pt');
     $service = new IntegrityTestSpotRetriever;
     $checkpointObservations = [];
 
     $result = $service->runForTest(
-        [[71, 100], [41, 70], [11, 40], [1, 10]],
+        [[1, 30], [31, 60], [61, 90], [91, 100]],
         $state,
-        saveStateOnlyAfterLastBatch: true,
         onBatchComplete: function () use (&$checkpointObservations): void {
             $checkpointObservations[] = UsenetState::query()->where('newsgroup', 'free.pt')->value('last_article_id');
         },
     );
 
-    expect($checkpointObservations)->toBe([null, null, null, null])
+    expect($checkpointObservations)->toBe([30, 60, 90, 100])
         ->and($state->fresh()->last_article_id)->toBe(100)
         ->and($result['highestArticle'])->toBe(100);
 });
 
-test('interrupted newest-first retrieval leaves its checkpoint unchanged', function () {
+test('interrupted old-to-new retrieval keeps its last completed checkpoint', function () {
     $state = UsenetState::query()->create([
         'newsgroup' => 'free.pt',
         'last_article_id' => 25,
@@ -46,12 +45,11 @@ test('interrupted newest-first retrieval leaves its checkpoint unchanged', funct
     $service->stopAfterFetch = true;
 
     $service->runForTest(
-        [[71, 100], [41, 70]],
+        [[1, 30], [31, 60]],
         $state,
-        saveStateOnlyAfterLastBatch: true,
     );
 
-    expect($state->fresh()->last_article_id)->toBe(25);
+    expect($state->fresh()->last_article_id)->toBe(30);
 });
 
 test('forked upsert failures propagate before checkpointing', function () {
@@ -179,7 +177,6 @@ class IntegrityTestSpotRetriever extends SpotRetrieverService
     public function runForTest(
         array $batches,
         UsenetState $state,
-        bool $saveStateOnlyAfterLastBatch,
         ?callable $onBatchComplete = null,
     ): array {
         return $this->runBatches(
@@ -189,7 +186,6 @@ class IntegrityTestSpotRetriever extends SpotRetrieverService
             $state,
             1,
             $onBatchComplete,
-            $saveStateOnlyAfterLastBatch,
         );
     }
 
