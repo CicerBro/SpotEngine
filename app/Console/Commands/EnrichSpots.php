@@ -6,6 +6,8 @@ namespace App\Console\Commands;
 
 use App\Models\Spot;
 use App\Services\Nntp\Contracts\NntpDriverInterface;
+use App\Services\Nntp\HeadBatchResult;
+use App\Services\Nntp\NntpException;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
@@ -13,7 +15,7 @@ use App\Services\SpotMutationService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
 use Illuminate\Console\Command;
-use Illuminate\Support\Collection;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\Console\Helper\ProgressBar;
 
@@ -24,16 +26,23 @@ use Symfony\Component\Console\Helper\ProgressBar;
  * verifies the RSA signature and updates the database record. Safe to run
  * repeatedly — already-enriched spots are skipped.
  *
+ * Spots are processed newest-first (highest primary key first) so recent
+ * content becomes fully browsable quickly. Very old spots can take a long
+ * time to receive an NNTP HEAD reply from the server.
+ *
  * A lot of old spots won't have NZB data, so they'll be deleted.
  */
-#[Description('Fetch full X-XML headers for spots indexed with --initial-scan. Oldest spots first by default, use --desc to process newest first.')]
+#[Description('Fetch full X-XML headers for spots indexed with --initial-scan, newest first by primary key.')]
 #[Signature('spot:enrich
                             {--connections= : Number of parallel NNTP connections (default from config)}
-                            {--batch= : Articles per NNTP batch (default 500)}
-                            {--limit= : Maximum number of spots to enrich in this run}
-                            {--desc : Process spots in descending posted-date order}')]
+                            {--batch= : Articles per DB page when loading spots (default 500)}
+                            {--limit= : Maximum number of spots to enrich in this run}')]
 class EnrichSpots extends Command
 {
+    private const int HEAD_STREAM_SIZE = 5000;
+
+    private const int FLUSH_SIZE = 500;
+
     private bool $shouldStop = false;
 
     public function handle(
@@ -48,7 +57,6 @@ class EnrichSpots extends Command
             : (int) $config['connections'];
         $batchSize = $this->option('batch') !== null ? (int) $this->option('batch') : 500;
         $limit = $this->option('limit') !== null ? (int) $this->option('limit') : null;
-        $orderDescending = (bool) $this->option('desc');
 
         $total = $this->countUnenriched();
 
@@ -60,20 +68,22 @@ class EnrichSpots extends Command
 
         $cap = $limit !== null ? min($total, $limit) : $total;
         $this->info("Enriching {$cap} of {$total} unenriched spots using {$connections} connections…");
+        $this->line('  Processing newest spots first. Very old spots can take a long time for an NNTP HEAD reply.');
+        $this->newLine();
 
         $nntp = $nntpService->makeDriver($connections);
         $nntp->connect();
+        $nntp->group((string) $config['groups']['spots']);
 
         $this->shouldStop = false;
         $this->registerInterruptHandler($nntp);
 
         $attempted = 0;
         $enriched = 0;
-        $failed = 0;
         $deleted = 0;
-        $cursorSpot = null;
+        $cursorId = null;
 
-        $progressBar = $this->createEnrichProgressBar($cap, $enriched, $failed, $deleted);
+        $progressBar = $this->createEnrichProgressBar($cap, $enriched, $deleted);
         $progressBar->start();
 
         try {
@@ -82,99 +92,127 @@ class EnrichSpots extends Command
                     break;
                 }
 
-                $queryLimit = $limit !== null ? min($batchSize, $limit - $attempted) : $batchSize;
+                $remaining = $limit !== null ? $limit - $attempted : null;
 
-                if ($queryLimit <= 0) {
+                if ($remaining !== null && $remaining <= 0) {
                     break;
                 }
 
-                $query = Spot::query()
-                    ->whereNull('xml_signature')
-                    ->select(['id', 'message_id', 'title', 'category_code', 'spot_posted_at']);
+                $streamLimit = $remaining !== null ? min(self::HEAD_STREAM_SIZE, $remaining) : self::HEAD_STREAM_SIZE;
 
-                if ($cursorSpot instanceof Spot) {
-                    $query->where(function ($query) use ($cursorSpot, $orderDescending): void {
-                        if ($orderDescending) {
-                            $query->where('spot_posted_at', '<', $cursorSpot->spot_posted_at)
-                                ->orWhere(function ($query) use ($cursorSpot): void {
-                                    $query->where('spot_posted_at', $cursorSpot->spot_posted_at)
-                                        ->where('id', '<', $cursorSpot->id);
-                                });
+                /** @var Collection<int, Spot> $streamBatch */
+                $streamBatch = new Collection;
 
-                            return;
-                        }
+                while ($streamBatch->count() < $streamLimit) {
+                    $pageLimit = min($batchSize, $streamLimit - $streamBatch->count());
 
-                        $query->where('spot_posted_at', '>', $cursorSpot->spot_posted_at)
-                            ->orWhere(function ($query) use ($cursorSpot): void {
-                                $query->where('spot_posted_at', $cursorSpot->spot_posted_at)
-                                    ->where('id', '>', $cursorSpot->id);
-                            });
-                    });
+                    $query = Spot::query()
+                        ->whereNull('xml_signature')
+                        ->select(['id', 'message_id', 'title', 'category_code', 'spot_posted_at']);
+
+                    if ($cursorId !== null) {
+                        $query->where('id', '<', $cursorId);
+                    }
+
+                    /** @var Collection<int, Spot> $page */
+                    $page = $query
+                        ->orderByDesc('id')
+                        ->limit($pageLimit)
+                        ->get();
+
+                    if ($page->isEmpty()) {
+                        break;
+                    }
+
+                    $streamBatch = $streamBatch->concat($page);
+                    $cursorId = $page->last()->id;
+
+                    if ($page->count() < $pageLimit) {
+                        break;
+                    }
                 }
 
-                if ($orderDescending) {
-                    $query->orderByDesc('spot_posted_at')
-                        ->orderByDesc('id');
-                } else {
-                    $query->orderBy('spot_posted_at')
-                        ->orderBy('id');
-                }
-
-                /** @var \Illuminate\Database\Eloquent\Collection<int, Spot> $batch */
-                $batch = $query
-                    ->limit($queryLimit)
-                    ->get();
-
-                if ($batch->isEmpty()) {
+                if ($streamBatch->isEmpty()) {
                     break;
                 }
 
-                $cursorSpot = $batch->last();
-                $messageIds = $batch->pluck('message_id')->all();
+                /** @var array<string, Spot> $spotsByMessageId */
+                $spotsByMessageId = $streamBatch->keyBy('message_id')->all();
 
-                /** @var Collection<string, Spot> $spotsByMessageId */
-                $spotsByMessageId = $batch->keyBy('message_id');
-
-                $headResults = $nntp->headBatch($messageIds, showProgress: false);
-
-                if ($this->wasInterrupted()) {
-                    break;
-                }
+                $messageIds = $streamBatch->pluck('message_id')->all();
 
                 $upsertRows = [];
                 $deleteIds = [];
+                $completionsSinceFlush = 0;
 
-                foreach ($headResults as $messageId => $headers) {
-                    /** @var Spot|null $spot */
-                    $spot = $spotsByMessageId->get((string) $messageId);
-
-                    if ($spot === null) {
-                        continue;
+                $flush = function () use (
+                    &$upsertRows,
+                    &$deleteIds,
+                    &$completionsSinceFlush,
+                    $spotMutations,
+                    $progressBar,
+                    &$attempted,
+                ): void {
+                    if ($upsertRows !== []) {
+                        $spotMutations->upsert($upsertRows, ['id'], [
+                            'description', 'image_segments', 'nzb_segments', 'website',
+                            'xml_signature', 'poster_key_id', 'is_verified',
+                        ]);
+                        $upsertRows = [];
                     }
 
+                    if ($deleteIds !== []) {
+                        $spotMutations->delete($deleteIds);
+                        $deleteIds = [];
+                    }
+
+                    $completionsSinceFlush = 0;
+                    $progressBar->setProgress($attempted);
+                    $progressBar->display();
+                };
+
+                $processArticle = function (int|string $messageId, HeadBatchResult $result) use (
+                    &$spotsByMessageId,
+                    &$upsertRows,
+                    &$deleteIds,
+                    &$completionsSinceFlush,
+                    &$attempted,
+                    &$enriched,
+                    &$deleted,
+                    $parser,
+                    $signer,
+                    $flush,
+                ): void {
+                    $spot = $spotsByMessageId[(string) $messageId] ?? null;
+
+                    if ($spot === null) {
+                        return;
+                    }
+
+                    unset($spotsByMessageId[(string) $messageId]);
                     $attempted++;
 
-                    if ($headers === null) {
-                        $failed++;
-                        Log::debug('spot:enrich HEAD failed', ['message_id' => $messageId]);
-
-                        // Mark as attempted — HEAD failure may be transient.
-                        $upsertRows[] = [
-                            'id' => $spot->id,
+                    if ($result->isEligibleForDeletion()) {
+                        $deleted++;
+                        $deleteIds[] = $spot->id;
+                        Log::debug('spot:enrich definitive HEAD failure — deleting', [
                             'message_id' => $spot->message_id,
-                            'title' => $spot->title,
-                            'category_code' => $spot->category_code,
-                            'spot_posted_at' => $spot->spot_posted_at,
-                            'description' => null,
-                            'image_segments' => '[]',
-                            'nzb_segments' => '[]',
-                            'website' => null,
-                            'xml_signature' => '',
-                            'poster_key_id' => null,
-                            'is_verified' => false,
-                        ];
+                            'outcome' => $result->outcome->name,
+                        ]);
 
-                        continue;
+                        $completionsSinceFlush++;
+
+                        if ($completionsSinceFlush >= self::FLUSH_SIZE) {
+                            $flush();
+                        }
+
+                        return;
+                    }
+
+                    $headers = $result->headers;
+
+                    if ($headers === null) {
+                        throw new \LogicException('Successful NNTP HEAD result did not include headers.');
                     }
 
                     $xmlContent = $headers['x-xml'] ?? '';
@@ -187,11 +225,17 @@ class EnrichSpots extends Command
                         $deleted++;
                         $deleteIds[] = $spot->id;
                         Log::debug('spot:enrich not fully indexable — deleting', [
-                            'message_id' => $messageId,
+                            'message_id' => $spot->message_id,
                             'reason' => $parsed === null ? 'xml_parse_failed' : 'missing_nzb_segments',
                         ]);
 
-                        continue;
+                        $completionsSinceFlush++;
+
+                        if ($completionsSinceFlush >= self::FLUSH_SIZE) {
+                            $flush();
+                        }
+
+                        return;
                     }
 
                     $isVerified = $xmlContent !== '' && $xmlSignature !== '' && $userKey !== '' && $signer->verify($xmlContent, $xmlSignature, $userKey);
@@ -212,27 +256,38 @@ class EnrichSpots extends Command
                     ];
 
                     $enriched++;
+                    $completionsSinceFlush++;
+
+                    if ($completionsSinceFlush >= self::FLUSH_SIZE) {
+                        $flush();
+                    }
+                };
+
+                try {
+                    $nntp->headBatch($messageIds, showProgress: false, onArticle: $processArticle);
+                } catch (NntpException $exception) {
+                    if ($upsertRows !== [] || $deleteIds !== []) {
+                        $flush();
+                    }
+
+                    $this->error("NNTP HEAD batch aborted; unattempted spots were preserved: {$exception->getMessage()}");
+
+                    return self::FAILURE;
                 }
 
-                if ($upsertRows !== []) {
-                    $spotMutations->upsert($upsertRows, ['id'], [
-                        'description', 'image_segments', 'nzb_segments', 'website',
-                        'xml_signature', 'poster_key_id', 'is_verified',
-                    ]);
+                if ($upsertRows !== [] || $deleteIds !== []) {
+                    $flush();
                 }
 
-                if ($deleteIds !== []) {
-                    $spotMutations->delete($deleteIds);
+                if ($this->wasInterrupted()) {
+                    break;
                 }
-
-                $progressBar->setProgress($attempted);
-                $progressBar->display();
 
                 if ($limit !== null && $attempted >= $limit) {
                     break;
                 }
 
-                if ($batch->count() < $batchSize) {
+                if ($streamBatch->count() < $streamLimit) {
                     break;
                 }
             }
@@ -248,12 +303,12 @@ class EnrichSpots extends Command
         }
 
         if ($this->wasInterrupted()) {
-            $this->warn("Stopped early. Enriched: {$enriched}, failed (no HEAD): {$failed}, deleted (not fully indexable): {$deleted}.");
+            $this->warn("Stopped early. Enriched: {$enriched}, deleted (unusable or no HEAD): {$deleted}.");
 
             return self::SUCCESS;
         }
 
-        $this->info("Done. Enriched: {$enriched}, failed (no HEAD): {$failed}, deleted (not fully indexable): {$deleted}.");
+        $this->info("Done. Enriched: {$enriched}, deleted (unusable or no HEAD): {$deleted}.");
 
         return self::SUCCESS;
     }
@@ -268,7 +323,6 @@ class EnrichSpots extends Command
     private function createEnrichProgressBar(
         int $max,
         int &$enriched,
-        int &$failed,
         int &$deleted,
     ): ProgressBar {
         $bar = $this->output->createProgressBar($max);
@@ -276,13 +330,10 @@ class EnrichSpots extends Command
         $bar->setEmptyBarCharacter('░');
         $bar->setProgressCharacter('█');
         $bar->setFormat(
-            ' %current%/%max% [%bar%] %percent:3s%%  enriched: %enriched%  failed: %failed%  deleted: %deleted%',
+            ' %current%/%max% [%bar%] %percent:3s%%  enriched: %enriched%  deleted: %deleted%',
         );
         $bar->setPlaceholderFormatterDefinition('enriched', function () use (&$enriched): string {
             return (string) $enriched;
-        });
-        $bar->setPlaceholderFormatterDefinition('failed', function () use (&$failed): string {
-            return (string) $failed;
         });
         $bar->setPlaceholderFormatterDefinition('deleted', function () use (&$deleted): string {
             return (string) $deleted;
