@@ -33,6 +33,9 @@ class ParallelNntpDriver implements NntpDriverInterface
     /** @var resource[] Raw sockets for parallel I/O */
     private array $sockets = [];
 
+    /** Set when quit()/detach() is called so in-flight batch loops can exit cleanly. */
+    private bool $quitting = false;
+
     /** Newsgroup currently selected on all connections (used when reconnecting dead sockets). */
     private string $currentGroup = '';
 
@@ -73,6 +76,8 @@ class ParallelNntpDriver implements NntpDriverInterface
      */
     public function connect(bool $showProgress = true): void
     {
+        $this->quitting = false;
+
         $useSSL = $this->config['ssl'] ?? true;
         $host = $this->config['host'];
         $port = $this->config['port'];
@@ -311,6 +316,10 @@ class ParallelNntpDriver implements NntpDriverInterface
         $replaceSocket = function (int $deadIdx) use (&$socketIdToIdx, &$pending, &$buffers, &$states, &$deadlines, $queue, $headCmd): void {
             unset($this->sockets[$deadIdx]);
 
+            if ($this->quitting) {
+                return;
+            }
+
             $newSocket = $this->reconnectOne();
 
             if ($newSocket === null) {
@@ -346,6 +355,14 @@ class ParallelNntpDriver implements NntpDriverInterface
         }
 
         while ($pending !== []) {
+            if ($this->quitting) {
+                foreach ($pending as $articleNum) {
+                    $record($articleNum, null);
+                }
+
+                break;
+            }
+
             $now = microtime(true);
 
             foreach ($deadlines as $idx => $deadline) {
@@ -358,7 +375,7 @@ class ParallelNntpDriver implements NntpDriverInterface
 
                 // Socket timed out — in-flight response may still be arriving, so
                 // reusing it would corrupt the NNTP stream. Close and reconnect.
-                @fclose($this->sockets[$idx]);
+                $this->closeSocketAt($idx);
                 unset($pending[$idx], $deadlines[$idx]);
                 $replaceSocket($idx);
             }
@@ -370,7 +387,15 @@ class ParallelNntpDriver implements NntpDriverInterface
             $readSet = [];
 
             foreach (array_keys($pending) as $idx) {
+                if (! isset($this->sockets[$idx])) {
+                    continue;
+                }
+
                 $readSet[] = $this->sockets[$idx];
+            }
+
+            if ($readSet === []) {
+                continue;
             }
 
             $write = null;
@@ -452,10 +477,14 @@ class ParallelNntpDriver implements NntpDriverInterface
 
     public function quit(): void
     {
+        $this->quitting = true;
+
         foreach ($this->sockets as $socket) {
             try {
-                $this->sendCommand($socket, 'QUIT');
-                fclose($socket);
+                if (is_resource($socket)) {
+                    $this->sendCommand($socket, 'QUIT');
+                    @fclose($socket);
+                }
             } catch (\Throwable) {
                 // Ignore
             }
@@ -472,8 +501,12 @@ class ParallelNntpDriver implements NntpDriverInterface
      */
     public function detach(): void
     {
+        $this->quitting = true;
+
         foreach ($this->sockets as $socket) {
-            @fclose($socket);
+            if (is_resource($socket)) {
+                @fclose($socket);
+            }
         }
 
         $this->sockets = [];
@@ -973,6 +1006,12 @@ class ParallelNntpDriver implements NntpDriverInterface
             flush();
         }
 
+        if ($this->quitting) {
+            unset($pending[$idx], $deadlines[$idx]);
+
+            return;
+        }
+
         if (! $queue->isEmpty()) {
             $next = $queue->dequeue();
             $pending[$idx] = $next;
@@ -982,6 +1021,21 @@ class ParallelNntpDriver implements NntpDriverInterface
             $this->sendCommand($socket, "HEAD $headId");
         } else {
             unset($pending[$idx], $deadlines[$idx]);
+        }
+    }
+
+    /** Close and remove a pooled socket when its index is known. */
+    private function closeSocketAt(int $idx): void
+    {
+        if (! isset($this->sockets[$idx])) {
+            return;
+        }
+
+        $socket = $this->sockets[$idx];
+        unset($this->sockets[$idx]);
+
+        if (is_resource($socket)) {
+            @fclose($socket);
         }
     }
 

@@ -229,6 +229,33 @@ test('parallel HEAD uses the shared Spotnet parser and wanted-header filter', fu
     fclose($server);
 });
 
+test('parallel HEAD aborts cleanly when quit is called during batch', function () {
+    $driver = new ParallelNntpDriver([
+        'host' => 'localhost',
+        'port' => 119,
+        'ssl' => false,
+        'timeout' => 1,
+    ], 1, connector: static fn (): mixed => null);
+    [$client, $server] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+    fwrite($server, "221 1 <first@test> headers follow\r\nX-XML: ok\r\n.\r\n");
+    injectParallelSockets($driver, [$client]);
+
+    $driver->headBatch(
+        ['first@test', 'second@test', 'third@test'],
+        showProgress: false,
+        onArticle: function (?array $headers) use ($driver): void {
+            if ($headers !== null) {
+                $driver->quit();
+            }
+        },
+    );
+
+    expect($driver->getConnectionCount())->toBe(0);
+
+    $driver->detach();
+    fclose($server);
+});
+
 test('parallel XOVER rejects incomplete socket responses', function () {
     $driver = new ParallelNntpDriver([
         'host' => 'localhost',
