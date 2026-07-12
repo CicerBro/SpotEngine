@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use App\Models\Spot;
 use App\Services\Nntp\Contracts\NntpDriverInterface;
+use App\Services\Nntp\HeadBatchResult;
+use App\Services\Nntp\NntpException;
 use App\Services\Nntp\NntpService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -13,16 +15,46 @@ uses(RefreshDatabase::class);
 beforeEach(function () {
     $this->mockDriver = Mockery::mock(NntpDriverInterface::class);
     $this->mockDriver->shouldReceive('connect');
+    $this->mockDriver->shouldReceive('group')->andReturn([
+        'count' => 1,
+        'first' => 1,
+        'last' => 1,
+        'group' => 'free.pt',
+    ]);
     $this->mockDriver->shouldReceive('quit');
 
     $mockNntpService = Mockery::mock(NntpService::class);
     $mockNntpService->shouldReceive('getConfig')->andReturn([
         'connections' => 1,
+        'groups' => ['spots' => 'free.pt'],
     ]);
     $mockNntpService->shouldReceive('makeDriver')->andReturn($this->mockDriver);
 
     $this->app->instance(NntpService::class, $mockNntpService);
 });
+
+/**
+ * @param  array<int|string, HeadBatchResult|array<string, string>|null>  $results
+ */
+function simulateStreamingHeadBatch(NntpDriverInterface $mockDriver, array $results): void
+{
+    $mockDriver->shouldReceive('headBatch')
+        ->once()
+        ->andReturnUsing(function (array $messageIds, bool $showProgress, ?callable $onArticle) use ($results): array {
+            foreach ($messageIds as $messageId) {
+                $result = $results[$messageId] ?? null;
+
+                $onArticle(
+                    $messageId,
+                    $result instanceof HeadBatchResult
+                        ? $result
+                        : ($result === null ? HeadBatchResult::missing() : HeadBatchResult::success($result)),
+                );
+            }
+
+            return [];
+        });
+}
 
 test('enrich preserves title when upserting spot data', function () {
     $spot = Spot::factory()->create([
@@ -42,16 +74,14 @@ test('enrich preserves title when upserting spot data', function () {
     </Posting></Spotnet>
     XML;
 
-    $this->mockDriver->shouldReceive('headBatch')
-        ->once()
-        ->andReturn([
-            $spot->message_id => [
-                'x-xml' => $xml,
-                'x-xml-signature' => 'sig123',
-                'x-user-key' => '',
-                'message-id' => $spot->message_id,
-            ],
-        ]);
+    simulateStreamingHeadBatch($this->mockDriver, [
+        $spot->message_id => [
+            'x-xml' => $xml,
+            'x-xml-signature' => 'sig123',
+            'x-user-key' => '',
+            'message-id' => $spot->message_id,
+        ],
+    ]);
 
     $this->artisan('spot:enrich')
         ->assertSuccessful();
@@ -71,31 +101,40 @@ test('enrich reports all spots enriched when none are unenriched', function () {
         ->expectsOutputToContain('All spots are already enriched');
 });
 
-test('enrich can process spots in descending posted date order', function () {
-    $olderSpot = Spot::factory()->create([
+test('enrich processes spots in descending primary-key order', function () {
+    $lowerIdSpot = Spot::factory()->create([
         'xml_signature' => null,
         'spot_posted_at' => now()->subDay(),
     ]);
-    $newerSpot = Spot::factory()->create([
+    $higherIdSpot = Spot::factory()->create([
         'xml_signature' => null,
         'spot_posted_at' => now(),
     ]);
 
-    $this->mockDriver->shouldReceive('headBatch')
-        ->once()
-        ->with([$newerSpot->message_id], false)
-        ->andReturn([
-            $newerSpot->message_id => null,
-        ]);
+    simulateStreamingHeadBatch($this->mockDriver, [
+        $higherIdSpot->message_id => null,
+    ]);
 
-    $this->artisan('spot:enrich --desc --limit=1')
+    $this->artisan('spot:enrich --limit=1')
         ->assertSuccessful();
 
-    expect($newerSpot->fresh()->xml_signature)->toBe('')
-        ->and($olderSpot->fresh()->xml_signature)->toBeNull();
+    expect(Spot::find($higherIdSpot->id))->toBeNull()
+        ->and($lowerIdSpot->fresh()->xml_signature)->toBeNull();
 });
 
-test('enrich advances through batches using a posted-date cursor', function () {
+test('enrich warns that very old spots can take a long time for NNTP replies', function () {
+    Spot::factory()->create(['xml_signature' => null]);
+
+    simulateStreamingHeadBatch($this->mockDriver, [
+        Spot::query()->value('message_id') => null,
+    ]);
+
+    $this->artisan('spot:enrich')
+        ->assertSuccessful()
+        ->expectsOutputToContain('Very old spots can take a long time for an NNTP HEAD reply');
+});
+
+test('enrich advances through batches using a primary-key cursor', function () {
     $firstSpot = Spot::factory()->create([
         'xml_signature' => null,
         'spot_posted_at' => now()->subMinutes(2),
@@ -111,19 +150,18 @@ test('enrich advances through batches using a posted-date cursor', function () {
 
     $this->mockDriver->shouldReceive('headBatch')
         ->once()
-        ->with([$firstSpot->message_id, $secondSpot->message_id], false)
-        ->ordered()
-        ->andReturn([
-            $firstSpot->message_id => null,
-            $secondSpot->message_id => null,
-        ]);
-    $this->mockDriver->shouldReceive('headBatch')
-        ->once()
-        ->with([$thirdSpot->message_id], false)
-        ->ordered()
-        ->andReturn([
-            $thirdSpot->message_id => null,
-        ]);
+        ->with(
+            [$thirdSpot->message_id, $secondSpot->message_id, $firstSpot->message_id],
+            false,
+            Mockery::type('callable'),
+        )
+        ->andReturnUsing(function (array $messageIds, bool $showProgress, ?callable $onArticle): array {
+            foreach ($messageIds as $messageId) {
+                $onArticle($messageId, HeadBatchResult::missing());
+            }
+
+            return [];
+        });
 
     DB::flushQueryLog();
     DB::enableQueryLog();
@@ -141,31 +179,26 @@ test('enrich advances through batches using a posted-date cursor', function () {
     DB::disableQueryLog();
 
     expect($batchQueries)->toHaveCount(2)
-        ->and($batchQueries->last())->toContain('"spot_posted_at" > ?');
+        ->and($batchQueries->last())->toContain('"id" < ?');
 });
 
-test('enrich marks failed HEAD with empty xml_signature and preserves title', function () {
+test('enrich deletes spots whose HEAD is definitively missing', function () {
     $spot = Spot::factory()->create([
         'title' => 'Keep This Title',
         'xml_signature' => null,
     ]);
 
-    $this->mockDriver->shouldReceive('headBatch')
-        ->once()
-        ->andReturn([
-            $spot->message_id => null,
-        ]);
+    simulateStreamingHeadBatch($this->mockDriver, [
+        $spot->message_id => null,
+    ]);
 
     $this->artisan('spot:enrich')
         ->assertSuccessful();
 
-    $spot->refresh();
-
-    expect($spot->title)->toBe('Keep This Title')
-        ->and($spot->xml_signature)->toBe('');
+    expect(Spot::find($spot->id))->toBeNull();
 });
 
-test('enrich handles mixed failed and successful HEAD results in same batch', function () {
+test('enrich handles mixed missing and successful HEAD results in the same batch', function () {
     $failedSpot = Spot::factory()->create([
         'title' => 'Failed Spot',
         'xml_signature' => null,
@@ -189,26 +222,22 @@ test('enrich handles mixed failed and successful HEAD results in same batch', fu
     </Posting></Spotnet>
     XML;
 
-    $this->mockDriver->shouldReceive('headBatch')
-        ->once()
-        ->andReturn([
-            $failedSpot->message_id => null,
-            $successSpot->message_id => [
-                'x-xml' => $xml,
-                'x-xml-signature' => 'sig456',
-                'x-user-key' => '',
-                'message-id' => $successSpot->message_id,
-            ],
-        ]);
+    simulateStreamingHeadBatch($this->mockDriver, [
+        $failedSpot->message_id => null,
+        $successSpot->message_id => [
+            'x-xml' => $xml,
+            'x-xml-signature' => 'sig456',
+            'x-user-key' => '',
+            'message-id' => $successSpot->message_id,
+        ],
+    ]);
 
     $this->artisan('spot:enrich')
         ->assertSuccessful();
 
-    $failedSpot->refresh();
     $successSpot->refresh();
 
-    expect($failedSpot->xml_signature)->toBe('')
-        ->and($failedSpot->title)->toBe('Failed Spot')
+    expect(Spot::find($failedSpot->id))->toBeNull()
         ->and($successSpot->xml_signature)->toBe('sig456')
         ->and($successSpot->description)->toBe('Enriched');
 });
@@ -226,19 +255,131 @@ test('enrich deletes spots with no NZB segments', function () {
     </Posting></Spotnet>
     XML;
 
-    $this->mockDriver->shouldReceive('headBatch')
-        ->once()
-        ->andReturn([
-            $spot->message_id => [
-                'x-xml' => $xml,
-                'x-xml-signature' => 'sig',
-                'x-user-key' => '',
-                'message-id' => $spot->message_id,
-            ],
-        ]);
+    simulateStreamingHeadBatch($this->mockDriver, [
+        $spot->message_id => [
+            'x-xml' => $xml,
+            'x-xml-signature' => 'sig',
+            'x-user-key' => '',
+            'message-id' => $spot->message_id,
+        ],
+    ]);
 
     $this->artisan('spot:enrich')
         ->assertSuccessful();
 
     expect(Spot::find($spot->id))->toBeNull();
+});
+
+test('enrich streams large batches through a single headBatch call', function () {
+    $spots = Spot::factory()->count(3)->create([
+        'xml_signature' => null,
+    ])->sortBy('id')->values();
+
+    $this->mockDriver->shouldReceive('headBatch')
+        ->once()
+        ->with($spots->pluck('message_id')->all(), false, Mockery::type('callable'))
+        ->andReturnUsing(function (array $messageIds, bool $showProgress, ?callable $onArticle): array {
+            foreach ($messageIds as $messageId) {
+                $onArticle($messageId, HeadBatchResult::missing());
+            }
+
+            return [];
+        });
+
+    $this->artisan('spot:enrich --batch=1')
+        ->assertSuccessful();
+
+    foreach ($spots as $spot) {
+        expect(Spot::find($spot->id))->toBeNull();
+    }
+});
+
+test('enrich aborts and preserves spots when HEAD reports a systemic failure', function () {
+    $spots = Spot::factory()->count(2)->create(['xml_signature' => null]);
+
+    $this->mockDriver->shouldReceive('headBatch')
+        ->once()
+        ->andThrow(new NntpException('Authentication rejected', responseCode: 482, operation: 'HEAD'));
+
+    $this->artisan('spot:enrich')
+        ->assertFailed()
+        ->expectsOutputToContain('unattempted spots were preserved');
+
+    foreach ($spots as $spot) {
+        expect($spot->fresh()->xml_signature)->toBeNull();
+    }
+});
+
+test('enrich leaves articles without a completed callback intact after an interrupted stream', function () {
+    $spots = Spot::factory()->count(2)->create(['xml_signature' => null])->sortBy('id')->values();
+
+    $this->mockDriver->shouldReceive('headBatch')
+        ->once()
+        ->andReturnUsing(function (array $messageIds, bool $showProgress, ?callable $onArticle): array {
+            $onArticle($messageIds[0], HeadBatchResult::missing());
+
+            return [];
+        });
+
+    $this->artisan('spot:enrich')
+        ->assertSuccessful();
+
+    expect(Spot::find($spots[0]->id))->toBeNull()
+        ->and($spots[1]->fresh()->xml_signature)->toBeNull();
+});
+
+test('enrich maps out-of-order callback IDs to their matching spots', function () {
+    $missingSpot = Spot::factory()->create(['xml_signature' => null]);
+    $enrichedSpot = Spot::factory()->create(['xml_signature' => null]);
+    $xml = '<Spotnet><Posting><Title>Mapped</Title><Category>01</Category><NZB><Segment>nzb@news</Segment></NZB></Posting></Spotnet>';
+
+    $this->mockDriver->shouldReceive('headBatch')
+        ->once()
+        ->andReturnUsing(function (array $messageIds, bool $showProgress, ?callable $onArticle) use ($xml): array {
+            $onArticle($messageIds[1], HeadBatchResult::success([
+                'x-xml' => $xml,
+                'x-xml-signature' => 'sig',
+                'x-user-key' => '',
+            ]));
+            $onArticle($messageIds[0], HeadBatchResult::missing());
+
+            return [];
+        });
+
+    $this->artisan('spot:enrich')
+        ->assertSuccessful();
+
+    expect(Spot::find($missingSpot->id))->toBeNull()
+        ->and($enrichedSpot->fresh()->description)->toBeNull()
+        ->and($enrichedSpot->fresh()->xml_signature)->toBe('sig');
+});
+
+test('enrich flushes deletes at 500 completions and after the residual callbacks', function () {
+    Spot::factory()->count(501)->create(['xml_signature' => null]);
+
+    $this->mockDriver->shouldReceive('headBatch')
+        ->once()
+        ->andReturnUsing(function (array $messageIds, bool $showProgress, ?callable $onArticle): array {
+            foreach ($messageIds as $messageId) {
+                $onArticle($messageId, HeadBatchResult::missing());
+            }
+
+            return [];
+        });
+
+    DB::flushQueryLog();
+    DB::enableQueryLog();
+
+    $this->artisan('spot:enrich')
+        ->assertSuccessful();
+
+    $deleteQueries = collect(DB::getQueryLog())
+        ->pluck('query')
+        ->filter(fn (string $query): bool => str_contains(strtolower($query), 'delete from "spots"'))
+        ->values();
+
+    DB::disableQueryLog();
+
+    expect($deleteQueries)->toHaveCount(2)
+        ->and(Spot::count())->toBe(0);
 });
