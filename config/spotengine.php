@@ -72,6 +72,12 @@ return [
     'retrieval' => [
         'batch_size' => (int) env('RETRIEVAL_BATCH_SIZE', 5000),
         'memory_limit' => env('RETRIEVAL_MEMORY_LIMIT', '1G'),
+        /*
+         * Unix timestamp cutoff for spot retrieval. Spots posted on or before this
+         * moment are skipped during indexing — pre-NZB Spotnet spots from before
+         * 2010-11-24 never had alt.binaries.ftd attachments. Set to 0 to disable.
+         */
+        'retrieve_newer_than' => (int) env('RETRIEVE_NEWER_THAN', 1290578400),
     ],
 
     /*
