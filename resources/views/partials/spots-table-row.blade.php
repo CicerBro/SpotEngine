@@ -5,16 +5,20 @@ $genreLabel = $spot->resolveGenreLabel($categoriesByCode ?? collect());
 $rootColorVar = $rootCategory?->cssColorVar() ?? '--color-cat-image';
 $rowBgClass = $rootCategory?->rowBackgroundClass() ?? 'hover:bg-gray-100/60';
 $imageUrl = route('spots.image', $spot);
+$readUntil = $spotsReadUntil ?? auth()->user()?->spots_read_until;
+$isUnread = $readUntil === null || $spot->spot_posted_at->isAfter($readUntil);
+$titleWeightClass = $isUnread ? 'font-bold' : 'font-normal';
+$rowUnreadClass = $isUnread ? 'bg-blue-50/70 dark:bg-blue-950/30' : '';
 @endphp
 
 {{-- Desktop row --}}
-<tr class="group hidden transition-colors md:table-row {{ $rowBgClass }}">
+<tr class="group hidden transition-colors md:table-row {{ $rowBgClass }} {{ $rowUnreadClass }}">
     <td class="w-16 overflow-hidden py-1 pl-3 pr-1">
         @include('partials.category-badge', ['category' => $badgeCategory ?? $spot->category, 'rootCategory' => $rootCategory])
     </td>
     <td class="max-w-0 w-full py-1 pl-1 pr-3" @mouseleave="$store.spotPreview.hide()">
         <a href="{{ route('spots.show', $spot) }}"
-           class="block truncate rounded font-medium leading-tight text-gray-900 transition-colors hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:text-slate-100 dark:hover:text-blue-400 dark:focus:ring-offset-slate-950"
+           class="block truncate rounded {{ $titleWeightClass }} leading-tight text-gray-900 transition-colors hover:text-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:text-slate-100 dark:hover:text-blue-400 dark:focus:ring-offset-slate-950"
            @mouseenter="$store.spotPreview.show('{{ $imageUrl }}', $event.clientX, $event.clientY)"
            @mousemove="$store.spotPreview.move($event.clientX, $event.clientY)">
             {{ $spot->title }}
@@ -60,7 +64,7 @@ $imageUrl = route('spots.image', $spot);
             </div>
 
             <a href="{{ route('spots.show', $spot) }}"
-               class="text-sm font-medium leading-snug text-gray-900 transition-colors hover:text-blue-600 dark:text-slate-100 dark:hover:text-blue-400">
+               class="text-sm {{ $titleWeightClass }} leading-snug text-gray-900 transition-colors hover:text-blue-600 dark:text-slate-100 dark:hover:text-blue-400">
                 {{ $spot->title }}
             </a>
 

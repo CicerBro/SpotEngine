@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Route;
 // Requires login
 Route::middleware('auth')->group(function () {
     Route::get('/', [HomeController::class, 'index'])->name('home');
+    Route::post('/spots/mark-read', [HomeController::class, 'markAllSpotsRead'])->name('spots.mark-read');
     Route::get('/spots/{spot}', [HomeController::class, 'show'])->name('spots.show');
     Route::get('/spots/{spot}/image', [HomeController::class, 'downloadImage'])->name('spots.image');
     Route::get('/categories.json', [HomeController::class, 'categoriesJson'])->name('categories.json');

@@ -6,6 +6,14 @@
 
             @include('partials.spot-filters-active', ['compact' => true])
         </div>
+
+        <form method="POST" action="{{ route('spots.mark-read') }}" class="shrink-0">
+            @csrf
+            <button type="submit"
+                    class="rounded-md border border-gray-300 bg-white px-3 py-1 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800">
+                Mark all read
+            </button>
+        </form>
     </div>
 
     {{-- Table (all breakpoints — rows control their own visibility) --}}
@@ -24,7 +32,10 @@
         <tbody x-ref="rows" class="divide-y divide-gray-100 dark:divide-slate-800">
             @fragment('spot-rows')
                 @forelse($spots as $spot)
-                    @include('partials.spots-table-row', ['spot' => $spot])
+                    @include('partials.spots-table-row', [
+                        'spot' => $spot,
+                        'spotsReadUntil' => $spotsReadUntil ?? null,
+                    ])
                 @empty
                     <tr>
                         <td colspan="7" class="px-3 py-12 text-center text-sm text-gray-400 dark:text-slate-500">

@@ -26,6 +26,7 @@ use Illuminate\Support\Str;
  * @property bool $is_admin
  * @property string $api_token
  * @property CarbonImmutable|null $last_login_at
+ * @property CarbonImmutable|null $spots_read_until
  * @property CarbonImmutable $created_at
  * @property CarbonImmutable $updated_at
  * @property-read Collection<int, UserDownload> $downloads
@@ -38,6 +39,7 @@ use Illuminate\Support\Str;
     'is_admin',
     'api_token',
     'last_login_at',
+    'spots_read_until',
 ])]
 #[Hidden([
     'password',
@@ -66,6 +68,37 @@ class User extends Authenticatable
         return $this->hasMany(UserDownload::class);
     }
 
+    public function isSpotUnread(Spot $spot): bool
+    {
+        if ($this->spots_read_until === null) {
+            return true;
+        }
+
+        return $spot->spot_posted_at->isAfter($this->spots_read_until);
+    }
+
+    public function unreadSpotCount(): int
+    {
+        $query = Spot::query();
+
+        if ($this->spots_read_until !== null) {
+            $query->where('spot_posted_at', '>', $this->spots_read_until);
+        }
+
+        return $query->count();
+    }
+
+    public function markAllSpotsRead(): void
+    {
+        $latestPostedAt = Spot::query()->max('spot_posted_at');
+
+        $this->spots_read_until = $latestPostedAt !== null
+            ? CarbonImmutable::parse($latestPostedAt)
+            : now();
+
+        $this->save();
+    }
+
     #[\Override]
     protected static function booted(): void
     {
@@ -82,6 +115,7 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'immutable_datetime',
             'last_login_at' => 'immutable_datetime',
+            'spots_read_until' => 'immutable_datetime',
             'password' => 'hashed',
             'is_admin' => 'boolean',
         ];

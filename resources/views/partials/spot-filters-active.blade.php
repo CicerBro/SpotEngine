@@ -1,10 +1,20 @@
 @php
-$hasFilters = request()->hasAny(['cat', 'subcat', 'q']);
+$hasFilters = request()->hasAny(['cat', 'subcat', 'q', 'new']);
 $compact = $compact ?? false;
 @endphp
 
 @if($hasFilters)
     <div class="{{ $compact ? 'flex flex-wrap gap-1' : 'px-3 mb-3 flex flex-wrap gap-1' }}">
+        @if(request()->boolean('new'))
+            <a href="{{ request()->fullUrlWithoutQuery('new') }}"
+               class="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs text-blue-700 transition-colors hover:bg-blue-200 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900">
+                New
+                <svg class="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
+                    <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
+                </svg>
+            </a>
+        @endif
+
         @if(request()->filled('q'))
             <a href="{{ request()->fullUrlWithoutQuery('q') }}"
                class="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs text-blue-700 transition-colors hover:bg-blue-200 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900">

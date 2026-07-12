@@ -321,6 +321,12 @@ class ManticoreSearchDriver implements SearchDriver
             ]];
         }
 
+        if ($criteria->unreadOnly && $criteria->unreadSince !== null) {
+            $must[] = ['range' => [
+                'posted_at' => ['gt' => $criteria->unreadSince->getTimestamp()],
+            ]];
+        }
+
         return $must === []
             ? ['match_all' => (object) []]
             : ['bool' => ['must' => $must]];

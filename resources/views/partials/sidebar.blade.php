@@ -29,11 +29,26 @@ $sidebarTree = $categoryTree ?? [];
        :class="sidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'">
 
     {{-- FILTERS (scrollable) --}}
-    @if(!empty($sidebarTree))
     <div class="min-h-0 flex-1 overflow-y-auto py-4">
+        @auth
+            @php
+                $unreadCount = auth()->user()->unreadSpotCount();
+            @endphp
+            <div class="mb-4 px-3">
+                <a href="{{ route('home', ['new' => 1]) }}"
+                   class="flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors {{ request()->boolean('new') ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100' }}">
+                    <span>New</span>
+                    @if($unreadCount > 0)
+                        <span class="rounded-full bg-blue-600 px-2 py-0.5 text-xs font-semibold text-white dark:bg-blue-500">{{ number_format($unreadCount) }}</span>
+                    @endif
+                </a>
+            </div>
+        @endauth
+
+    @if(!empty($sidebarTree))
         <div class="flex items-center justify-between px-5 mb-2">
             <p class="text-xs font-semibold uppercase tracking-wider text-gray-400 dark:text-slate-500">Filters</p>
-            @if(request()->hasAny(['cat', 'subcat', 'q']))
+            @if(request()->hasAny(['cat', 'subcat', 'q', 'new']))
                 <a href="{{ route('home') }}"
                    class="text-xs text-gray-400 transition-colors hover:text-gray-700 dark:text-slate-500 dark:hover:text-slate-200">
                     Reset
@@ -100,8 +115,8 @@ $sidebarTree = $categoryTree ?? [];
                 </div>
             </div>
         @endforeach
-    </div>
     @endif
+    </div>
 
     {{-- Last retrieval + USER + LOGOUT (always visible at bottom) --}}
     <div class="mt-auto shrink-0 border-t border-gray-200 px-3 py-3 dark:border-slate-800">
