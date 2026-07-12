@@ -262,11 +262,11 @@ class SingleNntpDriver implements NntpDriverInterface
      * For parallel HEAD throughput across multiple connections, use
      * {@see ParallelNntpDriver::headBatch()}.
      *
-     * Articles that return 430 (No Such Article) are passed as null to $onArticle
-     * or stored as null in the returned array.
+     * Streaming callbacks receive a typed outcome. The legacy return value
+     * continues to use null for every unsuccessful HEAD response.
      *
      * @param  array<int|string>  $articles
-     * @param  callable(?array<string,string>): void|null  $onArticle
+     * @param  callable(int|string, HeadBatchResult): void|null  $onArticle
      * @return array<int|string, array<string, string>|null>
      */
     public function headBatch(array $articles, bool $showProgress = true, ?callable $onArticle = null): array
@@ -276,12 +276,22 @@ class SingleNntpDriver implements NntpDriverInterface
         foreach ($articles as $id) {
             try {
                 $headers = $this->head($id);
-            } catch (NntpException) {
+            } catch (NntpException $exception) {
+                if ($onArticle !== null) {
+                    if ($exception->responseCode !== ResponseCode::NoSuchArticleId->value) {
+                        throw $exception;
+                    }
+
+                    $onArticle($id, HeadBatchResult::missing());
+
+                    continue;
+                }
+
                 $headers = null;
             }
 
             if ($onArticle !== null) {
-                $onArticle($headers);
+                $onArticle($id, HeadBatchResult::success($headers));
             } else {
                 $results[$id] = $headers;
             }

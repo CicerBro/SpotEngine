@@ -17,6 +17,14 @@ class ParallelNntpDriver implements NntpDriverInterface
     private const int MAX_XOVER_RETRIES = 2;
 
     /**
+     * HEAD responses are small and this is an absolute request deadline, not an
+     * inactivity timeout. Partial header bytes must not extend a stalled request.
+     */
+    private const float HEAD_RESPONSE_DEADLINE_SECONDS = 1.0;
+
+    private const int RECONNECT_TIMEOUT_SECONDS = 1;
+
+    /**
      * Headers consumed by SpotParser. All other headers are silently discarded
      * during HEAD parsing — this eliminates iconv calls for Subject and other
      * MIME-encoded headers that the application never reads.
@@ -43,6 +51,9 @@ class ParallelNntpDriver implements NntpDriverInterface
 
     private readonly int $timeout;
 
+    /** Per-HEAD response deadline before retrying on a fresh connection. */
+    private float $headResponseDeadlineSeconds;
+
     private int $readBufferSize = 65536;
 
     private readonly NntpConnectionConfig $connectionConfig;
@@ -56,12 +67,14 @@ class ParallelNntpDriver implements NntpDriverInterface
         private array $config,
         int $numConnections = 20,
         private readonly ?\Closure $connector = null,
+        ?float $headResponseDeadlineSeconds = null,
     ) {
         $this->connectionConfig = NntpConnectionConfig::fromArray($config);
         $this->endpoint = $this->connectionConfig->primary;
         $this->headerParser = new SpotnetHeaderParser;
         $this->numConnections = max(1, min($numConnections, 200));
         $this->timeout = $this->endpoint->timeout;
+        $this->headResponseDeadlineSeconds = max(0.0, $headResponseDeadlineSeconds ?? self::HEAD_RESPONSE_DEADLINE_SECONDS);
     }
 
     public function __destruct()
@@ -89,10 +102,16 @@ class ParallelNntpDriver implements NntpDriverInterface
 
         $startTime = microtime(true);
 
-        if ($useSSL) {
-            $this->connectSSL($host, $port);
+        if ($this->connector instanceof \Closure) {
+            for ($i = 0; $i < $this->numConnections; $i++) {
+                $socket = $this->reconnectOne();
+
+                if ($socket !== null) {
+                    $this->sockets[] = $socket;
+                }
+            }
         } else {
-            $this->connectAsync($host, $port);
+            $this->connectAsync($host, $port, $useSSL);
         }
 
         $elapsed = round(microtime(true) - $startTime, 2);
@@ -253,17 +272,13 @@ class ParallelNntpDriver implements NntpDriverInterface
     /**
      * Fetch headers for multiple articles using parallel connections.
      *
-     * Uses non-blocking fread() with a per-socket buffer so each stream_select()
-     * call drains all available data rather than one line at a time. Dead sockets
-     * (EOF or timeout) are immediately replaced with fresh connections so the pool
-     * size stays stable throughout the batch.
+     * A callback receives exactly one typed result for each completed article.
+     * A fatal protocol, authentication, or reconnect failure throws instead, so
+     * pending articles remain untouched by callers such as spot:enrich.
      *
-     * @param  array<int|string>  $articles  Article numbers (int) or message-IDs (string, without angle brackets)
-     * @param  callable(?array<string,string>): void|null  $onArticle  Optional callback invoked for each
-     *                                                                 completed article (headers array or null on failure). When provided the method returns []
-     *                                                                 and never accumulates headers in memory, keeping peak usage proportional to connection
-     *                                                                 count rather than batch size.
-     * @return array<int|string, array<string, string>|null> Article number/message-ID => headers (empty when $onArticle provided)
+     * @param  array<int|string>  $articles
+     * @param  callable(int|string, HeadBatchResult): void|null  $onArticle
+     * @return array<int|string, array<string, string>|null>
      */
     public function headBatch(array $articles, bool $showProgress = true, ?callable $onArticle = null): array
     {
@@ -271,21 +286,15 @@ class ParallelNntpDriver implements NntpDriverInterface
             return [];
         }
 
-        // Format an article number or message-ID into the string sent to the server.
-        $headCmd = static fn (int|string $id): string => is_int($id) ? "HEAD $id\r\n" : "HEAD <$id>\r\n";
+        if ($this->sockets === []) {
+            throw new NntpException('Not connected', operation: 'HEAD');
+        }
 
         foreach ($this->sockets as $socket) {
             stream_set_blocking($socket, false);
         }
 
-        /** @var array<int, int> */
-        $socketIdToIdx = [];
-
-        foreach ($this->sockets as $idx => $socket) {
-            $socketIdToIdx[(int) $socket] = $idx;
-        }
-
-        /** @var \SplQueue<int|string> */
+        /** @var \SplQueue<int|string> $queue */
         $queue = new \SplQueue;
 
         foreach ($articles as $id) {
@@ -295,181 +304,224 @@ class ParallelNntpDriver implements NntpDriverInterface
         $total = $queue->count();
         $done = 0;
         $startTime = microtime(true);
-
         $results = [];
-
-        $record = $onArticle !== null
-            ? static function (int|string $num, ?array $headers) use ($onArticle): void {
-                $onArticle($headers);
-            }
-        : static function (int|string $num, ?array $headers) use (&$results): void {
-            $results[$num] = $headers;
-        };
-
+        $completed = [];
+        $retryCounts = [];
         $pending = [];
         $buffers = [];
         $states = [];
         $deadlines = [];
+        $reconnectsNeeded = 0;
+        $socketIdToIdx = [];
 
-        // Replaces a dead socket slot with a fresh connection, then dispatches
-        // the next article onto it. Keeps the pool size stable over long batches.
-        $replaceSocket = function (int $deadIdx) use (&$socketIdToIdx, &$pending, &$buffers, &$states, &$deadlines, $queue, $headCmd): void {
-            unset($this->sockets[$deadIdx]);
+        foreach ($this->sockets as $idx => $socket) {
+            $socketIdToIdx[(int) $socket] = $idx;
+        }
 
-            if ($this->quitting) {
+        $record = function (int|string $articleId, HeadBatchResult $result) use (&$completed, &$results, $onArticle): void {
+            $key = $this->headRetryKey($articleId);
+
+            if (isset($completed[$key])) {
                 return;
             }
 
-            $newSocket = $this->reconnectOne();
+            $completed[$key] = true;
 
-            if ($newSocket === null) {
-                return; // Server refused reconnect — shrink pool temporarily
+            if ($onArticle !== null) {
+                $onArticle($articleId, $result);
+
+                return;
             }
 
-            $newIdx = ($this->sockets !== [] ? max(array_keys($this->sockets)) : -1) + 1;
-            $this->sockets[$newIdx] = $newSocket;
-            stream_set_blocking($newSocket, false);
-            $socketIdToIdx[(int) $newSocket] = $newIdx;
+            $results[$articleId] = $result->headers;
+        };
 
-            if (! $queue->isEmpty()) {
-                $next = $queue->dequeue();
-                $pending[$newIdx] = $next;
-                $buffers[$newIdx] = '';
-                $states[$newIdx] = ['status' => 'wait_response', 'parser' => $this->headerParser->start()];
-                $deadlines[$newIdx] = microtime(true) + 3.0;
-                $this->sendCommand($newSocket, rtrim($headCmd($next), "\r\n"));
+        $markDone = function () use (&$done, $total, $startTime, $showProgress): void {
+            $done++;
+
+            if ($showProgress && ($done % 50 === 0 || $done === $total)) {
+                $elapsed = microtime(true) - $startTime;
+                $rate = $elapsed > 0 ? round($done / $elapsed, 1) : 0;
+                $percentage = (int) round(100 * $done / $total);
+                echo "\r  Progress: $done/$total ($percentage%) - {$rate}/sec   ";
+                flush();
             }
         };
 
-        foreach ($this->sockets as $idx => $socket) {
-            if ($queue->isEmpty()) {
-                break;
+        $complete = function (int $idx, mixed $socket, HeadBatchResult $result) use (&$pending, &$states, &$deadlines, &$buffers, $queue, $record, $markDone): void {
+            $articleId = $pending[$idx];
+            unset($pending[$idx], $states[$idx], $deadlines[$idx], $buffers[$idx]);
+            $record($articleId, $result);
+            $markDone();
+            $this->dispatchNextHead($idx, $socket, $pending, $states, $deadlines, $buffers, $queue);
+        };
+
+        $retire = function (int $idx) use (&$pending, &$states, &$deadlines, &$buffers, &$retryCounts, &$reconnectsNeeded, $queue, $record, $markDone): void {
+            $articleId = $pending[$idx];
+            $retryKey = $this->headRetryKey($articleId);
+            $this->closeSocketAt($idx);
+            unset($pending[$idx], $states[$idx], $deadlines[$idx], $buffers[$idx]);
+
+            if (($retryCounts[$retryKey] ?? 0) === 0) {
+                $retryCounts[$retryKey] = 1;
+                $queue->unshift($articleId);
+                $reconnectsNeeded++;
+
+                return;
             }
 
-            $articleNum = $queue->dequeue();
-            $pending[$idx] = $articleNum;
-            $buffers[$idx] = '';
-            $states[$idx] = ['status' => 'wait_response', 'parser' => $this->headerParser->start()];
-            $deadlines[$idx] = microtime(true) + 3.0;
-            $this->sendCommand($socket, rtrim($headCmd($articleNum), "\r\n"));
+            $record($articleId, HeadBatchResult::timedOutAfterRetry());
+            $markDone();
+        };
+
+        foreach ($this->sockets as $idx => $socket) {
+            if (! $this->dispatchNextHead($idx, $socket, $pending, $states, $deadlines, $buffers, $queue)) {
+                break;
+            }
         }
 
-        while ($pending !== []) {
-            if ($this->quitting) {
-                foreach ($pending as $articleNum) {
-                    $record($articleNum, null);
+        try {
+            while ($pending !== [] || ! $queue->isEmpty() || $reconnectsNeeded > 0) {
+                if ($this->quitting) {
+                    break;
                 }
 
-                break;
-            }
+                $now = microtime(true);
 
-            $now = microtime(true);
-
-            foreach ($deadlines as $idx => $deadline) {
-                if (! isset($pending[$idx]) || $now < $deadline) {
-                    continue;
+                foreach ($deadlines as $idx => $deadline) {
+                    if (isset($pending[$idx]) && $now >= $deadline) {
+                        $retire($idx);
+                    }
                 }
 
-                $record($pending[$idx], null);
-                $done++;
+                if ($pending === [] && $reconnectsNeeded > 0) {
+                    /*
+                     * Reconnect only when there are no active HEAD reads. A bounded
+                     * reconnect cannot stall healthy sockets or their read loop.
+                     */
+                    $replacement = $this->reconnectOne();
 
-                // Socket timed out — in-flight response may still be arriving, so
-                // reusing it would corrupt the NNTP stream. Close and reconnect.
-                $this->closeSocketAt($idx);
-                unset($pending[$idx], $deadlines[$idx]);
-                $replaceSocket($idx);
-            }
-
-            if ($pending === []) {
-                break;
-            }
-
-            $readSet = [];
-
-            foreach (array_keys($pending) as $idx) {
-                if (! isset($this->sockets[$idx])) {
-                    continue;
-                }
-
-                $readSet[] = $this->sockets[$idx];
-            }
-
-            if ($readSet === []) {
-                continue;
-            }
-
-            $write = null;
-            $except = null;
-
-            if (@stream_select($readSet, $write, $except, 1, 0) <= 0) {
-                continue;
-            }
-
-            foreach ($readSet as $socket) {
-                $idx = $socketIdToIdx[(int) $socket];
-                $data = @fread($socket, $this->readBufferSize);
-
-                if ($data === false || $data === '') {
-                    // fread returns '' for both "no data yet" (non-blocking) and EOF.
-                    if ($data === false || feof($socket)) {
-                        $record($pending[$idx], null);
-                        @fclose($socket);
-                        unset($pending[$idx], $deadlines[$idx]);
-                        $done++;
-                        $replaceSocket($idx);
+                    if ($replacement === null) {
+                        throw new NntpException('Failed to reconnect a retired NNTP HEAD socket', operation: 'HEAD');
                     }
 
+                    $reconnectsNeeded--;
+                    $newIdx = ($this->sockets === [] ? -1 : max(array_keys($this->sockets))) + 1;
+                    $this->sockets[$newIdx] = $replacement;
+                    stream_set_blocking($replacement, false);
+                    $socketIdToIdx[(int) $replacement] = $newIdx;
+                    $this->dispatchNextHead($newIdx, $replacement, $pending, $states, $deadlines, $buffers, $queue);
+
                     continue;
                 }
 
-                $deadlines[$idx] = microtime(true) + 3.0;
-                $buffers[$idx] .= $data;
+                $this->redistributeHeadQueue($pending, $states, $deadlines, $buffers, $queue);
 
-                while (isset($pending[$idx])) {
-                    $newlinePos = strpos($buffers[$idx], "\n");
-
-                    if ($newlinePos === false) {
+                if ($pending === []) {
+                    if ($queue->isEmpty()) {
                         break;
                     }
 
-                    $line = rtrim(substr($buffers[$idx], 0, $newlinePos), "\r");
-                    $buffers[$idx] = substr($buffers[$idx], $newlinePos + 1);
-                    $articleNum = $pending[$idx];
+                    throw new NntpException('No NNTP sockets are available for HEAD requests', operation: 'HEAD');
+                }
 
-                    if ($states[$idx]['status'] === 'wait_response') {
-                        if (str_starts_with($line, '221')) {
-                            $states[$idx]['status'] = 'reading_headers';
-                        } else {
-                            $record($articleNum, null);
-                            $this->headDispatchNext($idx, $socket, $pending, $states, $deadlines, $queue, $done, $total, $startTime, $showProgress);
+                $readSet = [];
+
+                foreach (array_keys($pending) as $idx) {
+                    if (isset($this->sockets[$idx])) {
+                        $readSet[] = $this->sockets[$idx];
+                    }
+                }
+
+                if ($readSet === []) {
+                    throw new NntpException('No active NNTP sockets remain for HEAD requests', operation: 'HEAD');
+                }
+
+                $nextDeadline = min($deadlines);
+                $waitMicroseconds = max(0, min(1_000_000, (int) (($nextDeadline - microtime(true)) * 1_000_000)));
+                $write = null;
+                $except = null;
+
+                if (@stream_select($readSet, $write, $except, 0, $waitMicroseconds) <= 0) {
+                    continue;
+                }
+
+                foreach ($readSet as $socket) {
+                    $idx = $socketIdToIdx[(int) $socket] ?? null;
+
+                    if ($idx === null || ! isset($pending[$idx])) {
+                        continue;
+                    }
+
+                    $data = @fread($socket, $this->readBufferSize);
+
+                    if ($data === false || ($data === '' && feof($socket))) {
+                        $retire($idx);
+
+                        continue;
+                    }
+
+                    if ($data === '') {
+                        continue;
+                    }
+
+                    $buffers[$idx] .= $data;
+
+                    while (isset($pending[$idx])) {
+                        $newlinePos = strpos($buffers[$idx], "\n");
+
+                        if ($newlinePos === false) {
+                            break;
                         }
 
-                        continue;
+                        $line = rtrim(substr($buffers[$idx], 0, $newlinePos), "\r");
+                        $buffers[$idx] = substr($buffers[$idx], $newlinePos + 1);
+
+                        if ($states[$idx]['status'] === 'wait_response') {
+                            if (str_starts_with($line, '221')) {
+                                $states[$idx]['status'] = 'reading_headers';
+
+                                continue;
+                            }
+
+                            if (preg_match('/^430(?:\s|$)/', $line) === 1) {
+                                $complete($idx, $socket, HeadBatchResult::missing());
+
+                                continue;
+                            }
+
+                            if ($onArticle === null) {
+                                $complete($idx, $socket, HeadBatchResult::missing());
+
+                                continue;
+                            }
+
+                            throw new NntpException("HEAD failed: {$line}", responseCode: (int) substr($line, 0, 3), statusText: $line, operation: 'HEAD');
+                        }
+
+                        if ($line === '.') {
+                            $complete($idx, $socket, HeadBatchResult::success(
+                                $this->headerParser->finish($states[$idx]['parser']),
+                            ));
+
+                            continue;
+                        }
+
+                        $this->headerParser->consume($states[$idx]['parser'], $line, self::WANTED_HEADERS);
                     }
-
-                    if ($line === '.') {
-                        $record($articleNum, $this->headerParser->finish($states[$idx]['parser']));
-                        $this->headDispatchNext($idx, $socket, $pending, $states, $deadlines, $queue, $done, $total, $startTime, $showProgress);
-
-                        continue;
-                    }
-
-                    $this->headerParser->consume($states[$idx]['parser'], $line, self::WANTED_HEADERS);
                 }
             }
-        }
+        } finally {
+            $this->sockets = array_values($this->sockets);
 
-        // Re-index: dead slots were unset inline, new reconnected sockets got higher
-        // indices. Normalise to 0..N-1 so subsequent xover() calls work correctly.
-        $this->sockets = array_values($this->sockets);
+            foreach ($this->sockets as $socket) {
+                stream_set_blocking($socket, true);
+            }
 
-        foreach ($this->sockets as $socket) {
-            stream_set_blocking($socket, true);
-        }
-
-        if ($showProgress) {
-            echo "\r" . str_repeat(' ', 60) . "\r";
-            flush();
+            if ($showProgress) {
+                echo "\r" . str_repeat(' ', 60) . "\r";
+                flush();
+            }
         }
 
         return $results;
@@ -612,7 +664,7 @@ class ParallelNntpDriver implements NntpDriverInterface
                             throw new NntpException("XOVER failed: {$line}", statusText: $line, operation: 'XOVER');
                         }
 
-                        break;
+                        continue;
                     }
 
                     if ($line === '.') {
@@ -687,147 +739,12 @@ class ParallelNntpDriver implements NntpDriverInterface
     }
 
     /**
-     * Open connections asynchronously (for non-SSL).
-     * Uses a state machine to handle all phases in parallel:
-     * connecting -> wait_greeting -> wait_user -> wait_pass -> ready
+     * Open connections in parallel using one state machine. SSL connections add
+     * an asynchronous TLS handshake between TCP connection and the greeting.
      */
-    private function connectAsync(string $host, int|string $port): void
-    {
-        $pending = [];
-
-        for ($i = 0; $i < $this->numConnections; $i++) {
-            $socket = @stream_socket_client(
-                "tcp://{$host}:{$port}",
-                $errno,
-                $errstr,
-                0,
-                STREAM_CLIENT_CONNECT | STREAM_CLIENT_ASYNC_CONNECT
-            );
-
-            if ($socket) {
-                stream_set_blocking($socket, false);
-                $pending[$i] = ['socket' => $socket, 'state' => 'connecting'];
-            }
-        }
-
-        $ready = [];
-        $deadline = microtime(true) + 10;
-
-        while ($pending !== [] && microtime(true) < $deadline) {
-            $readSockets = [];
-            $writeSockets = [];
-
-            foreach ($pending as $idx => $data) {
-                if ($data['state'] === 'connecting') {
-                    $writeSockets[$idx] = $data['socket'];
-                } else {
-                    $readSockets[$idx] = $data['socket'];
-                }
-            }
-
-            $r = $readSockets === [] ? null : array_values($readSockets);
-            $w = $writeSockets === [] ? null : array_values($writeSockets);
-            $e = null;
-
-            $changed = @stream_select($r, $w, $e, 0, 100000);
-            if ($changed === false) {
-                break;
-            }
-            if ($changed === 0) {
-                continue;
-            }
-
-            if ($w) {
-                foreach ($w as $socket) {
-                    foreach ($pending as $idx => $data) {
-                        if ($data['socket'] === $socket && $data['state'] === 'connecting') {
-                            $pending[$idx]['state'] = 'wait_greeting';
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if ($r) {
-                foreach ($r as $socket) {
-                    foreach ($pending as $idx => $data) {
-                        if ($data['socket'] !== $socket) {
-                            continue;
-                        }
-
-                        $line = @fgets($socket, 4096);
-                        if ($line === false || $line === '') {
-                            @fclose($socket);
-                            unset($pending[$idx]);
-                            break;
-                        }
-                        $line = trim($line);
-
-                        switch ($data['state']) {
-                            case 'wait_greeting':
-                                if (str_starts_with($line, '200') || str_starts_with($line, '201')) {
-                                    if (! empty($this->config['username'])) {
-                                        $this->sendCommand($socket, "AUTHINFO USER {$this->endpoint->username}");
-                                        $pending[$idx]['state'] = 'wait_user';
-                                    } else {
-                                        $ready[] = $socket;
-                                        unset($pending[$idx]);
-                                    }
-                                } else {
-                                    @fclose($socket);
-                                    unset($pending[$idx]);
-                                }
-                                break;
-
-                            case 'wait_user':
-                                if (str_starts_with($line, '381')) {
-                                    $this->sendCommand($socket, "AUTHINFO PASS {$this->endpoint->password}");
-                                    $pending[$idx]['state'] = 'wait_pass';
-                                } elseif (str_starts_with($line, '281')) {
-                                    $ready[] = $socket;
-                                    unset($pending[$idx]);
-                                } else {
-                                    @fclose($socket);
-                                    unset($pending[$idx]);
-                                }
-                                break;
-
-                            case 'wait_pass':
-                                if (str_starts_with($line, '281')) {
-                                    $ready[] = $socket;
-                                } else {
-                                    @fclose($socket);
-                                }
-                                unset($pending[$idx]);
-                                break;
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        foreach ($pending as $data) {
-            @fclose($data['socket']);
-        }
-
-        foreach ($ready as $socket) {
-            stream_set_blocking($socket, true);
-            stream_set_timeout($socket, $this->timeout);
-            stream_set_read_buffer($socket, $this->readBufferSize);
-
-            $this->sockets[] = $socket;
-        }
-    }
-
-    /**
-     * Open SSL connections in parallel using non-blocking I/O.
-     * State machine: connecting -> ssl_handshake -> wait_greeting -> wait_user -> wait_pass -> ready
-     */
-    private function connectSSL(string $host, int|string $port): void
+    private function connectAsync(string $host, int|string $port, bool $useSsl): void
     {
         $context = stream_context_create($this->endpoint->streamContextOptions());
-
         $pending = [];
 
         for ($i = 0; $i < $this->numConnections; $i++) {
@@ -837,125 +754,142 @@ class ParallelNntpDriver implements NntpDriverInterface
                 $errstr,
                 0,
                 STREAM_CLIENT_CONNECT | STREAM_CLIENT_ASYNC_CONNECT,
-                $context
+                $context,
             );
 
-            if ($socket) {
+            if ($socket !== false) {
                 stream_set_blocking($socket, false);
-                $pending[$i] = ['socket' => $socket, 'state' => 'connecting', 'retries' => 0];
+                $pending[$i] = ['socket' => $socket, 'state' => 'connecting'];
             }
         }
 
         $ready = [];
-        $deadline = microtime(true) + 15;
+        $deadline = microtime(true) + ($useSsl ? 15 : 10);
 
         while ($pending !== [] && microtime(true) < $deadline) {
-            $all = array_column($pending, 'socket');
-            $r = $all;
-            $w = $all;
-            $e = null;
+            $readSockets = [];
+            $writeSockets = [];
 
-            if (@stream_select($r, $w, $e, 0, 50000) === 0) {
+            foreach ($pending as $idx => $data) {
+                if ($data['state'] === 'connecting') {
+                    $writeSockets[$idx] = $data['socket'];
+                } elseif ($data['state'] === 'ssl_handshake') {
+                    $readSockets[$idx] = $data['socket'];
+                    $writeSockets[$idx] = $data['socket'];
+                } else {
+                    $readSockets[$idx] = $data['socket'];
+                }
+            }
+
+            $read = $readSockets === [] ? null : array_values($readSockets);
+            $write = $writeSockets === [] ? null : array_values($writeSockets);
+            $except = null;
+            $changed = @stream_select($read, $write, $except, 0, 100000);
+
+            if ($changed === false) {
+                break;
+            }
+
+            if ($changed === 0) {
                 continue;
             }
 
-            foreach ($pending as $idx => &$data) {
-                $socket = $data['socket'];
-                $inRead = \in_array($socket, $r, true);
-                $inWrite = \in_array($socket, $w, true);
-
-                switch ($data['state']) {
-                    case 'connecting':
-                        if ($inWrite) {
-                            $data['state'] = 'ssl_handshake';
-                        }
-                        break;
-
-                    case 'ssl_handshake':
-                        $result = @stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
-                        if ($result === true) {
-                            $data['state'] = 'wait_greeting';
-                            $data['retries'] = 0;
-                        } elseif ($result === false) {
-                            @fclose($socket);
-                            unset($pending[$idx]);
-                        }
-                        break;
-
-                    case 'wait_greeting':
-                        if ($inRead) {
-                            $line = @fgets($socket, 4096);
-                            if ($line && trim($line) !== '') {
-                                if (str_starts_with($line, '200') || str_starts_with($line, '201')) {
-                                    if (! empty($this->config['username'])) {
-                                        $this->sendCommand($socket, "AUTHINFO USER {$this->endpoint->username}");
-                                        $data['state'] = 'wait_user';
-                                        $data['retries'] = 0;
-                                    } else {
-                                        $ready[] = $socket;
-                                        unset($pending[$idx]);
-                                    }
-                                } else {
-                                    @fclose($socket);
-                                    unset($pending[$idx]);
-                                }
-                            } else {
-                                $data['retries']++;
-                                if ($data['retries'] > 100) {
-                                    @fclose($socket);
-                                    unset($pending[$idx]);
-                                }
-                            }
-                        }
-                        break;
-
-                    case 'wait_user':
-                        if ($inRead) {
-                            $line = @fgets($socket, 4096);
-                            if ($line && trim($line) !== '') {
-                                if (str_starts_with($line, '381')) {
-                                    $this->sendCommand($socket, "AUTHINFO PASS {$this->endpoint->password}");
-                                    $data['state'] = 'wait_pass';
-                                    $data['retries'] = 0;
-                                } elseif (str_starts_with($line, '281')) {
-                                    $ready[] = $socket;
-                                    unset($pending[$idx]);
-                                } else {
-                                    @fclose($socket);
-                                    unset($pending[$idx]);
-                                }
-                            } else {
-                                $data['retries']++;
-                                if ($data['retries'] > 100) {
-                                    @fclose($socket);
-                                    unset($pending[$idx]);
-                                }
-                            }
-                        }
-                        break;
-
-                    case 'wait_pass':
-                        if ($inRead) {
-                            $line = @fgets($socket, 4096);
-                            if ($line && trim($line) !== '') {
-                                if (str_starts_with($line, '281')) {
-                                    $ready[] = $socket;
-                                } else {
-                                    @fclose($socket);
-                                }
-                                unset($pending[$idx]);
-                            } else {
-                                $data['retries']++;
-                                if ($data['retries'] > 100) {
-                                    @fclose($socket);
-                                    unset($pending[$idx]);
-                                }
-                            }
-                        }
-                        break;
+            foreach (array_keys($pending) as $idx) {
+                if (! isset($pending[$idx])) {
+                    continue;
                 }
+
+                $socket = $pending[$idx]['socket'];
+                $inRead = $read !== null && \in_array($socket, $read, true);
+                $inWrite = $write !== null && \in_array($socket, $write, true);
+                $state = $pending[$idx]['state'];
+
+                if ($state === 'connecting') {
+                    if ($inWrite) {
+                        $pending[$idx]['state'] = $useSsl ? 'ssl_handshake' : 'wait_greeting';
+                    }
+
+                    continue;
+                }
+
+                if ($state === 'ssl_handshake') {
+                    if (! $inRead && ! $inWrite) {
+                        continue;
+                    }
+
+                    $result = @stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT);
+
+                    if ($result === true) {
+                        $pending[$idx]['state'] = 'wait_greeting';
+                    } elseif ($result === false) {
+                        @fclose($socket);
+                        unset($pending[$idx]);
+                    }
+
+                    continue;
+                }
+
+                if (! $inRead) {
+                    continue;
+                }
+
+                $line = @fgets($socket, 4096);
+
+                if ($line === false || $line === '') {
+                    if (feof($socket)) {
+                        @fclose($socket);
+                        unset($pending[$idx]);
+                    }
+
+                    continue;
+                }
+
+                $line = trim($line);
+
+                if ($state === 'wait_greeting') {
+                    if (! str_starts_with($line, '200') && ! str_starts_with($line, '201')) {
+                        @fclose($socket);
+                        unset($pending[$idx]);
+
+                        continue;
+                    }
+
+                    if ($this->endpoint->username === '' || $this->endpoint->username === '0') {
+                        $ready[] = $socket;
+                        unset($pending[$idx]);
+
+                        continue;
+                    }
+
+                    $this->sendCommand($socket, "AUTHINFO USER {$this->endpoint->username}");
+                    $pending[$idx]['state'] = 'wait_user';
+
+                    continue;
+                }
+
+                if ($state === 'wait_user') {
+                    if (str_starts_with($line, '381')) {
+                        $this->sendCommand($socket, "AUTHINFO PASS {$this->endpoint->password}");
+                        $pending[$idx]['state'] = 'wait_pass';
+                    } elseif (str_starts_with($line, '281')) {
+                        $ready[] = $socket;
+                        unset($pending[$idx]);
+                    } else {
+                        @fclose($socket);
+                        unset($pending[$idx]);
+                    }
+
+                    continue;
+                }
+
+                if (str_starts_with($line, '281')) {
+                    $ready[] = $socket;
+                } else {
+                    @fclose($socket);
+                }
+
+                unset($pending[$idx]);
             }
-            unset($data);
         }
 
         foreach ($pending as $data) {
@@ -966,62 +900,79 @@ class ParallelNntpDriver implements NntpDriverInterface
             stream_set_blocking($socket, true);
             stream_set_timeout($socket, $this->timeout);
             stream_set_read_buffer($socket, $this->readBufferSize);
-
             $this->sockets[] = $socket;
         }
     }
 
     /**
-     * Complete the current article on a socket and dispatch the next one.
+     * Assign queued articles to idle pooled sockets after a slot dies or finishes.
      *
-     * @param  array<int, int>  $pending
-     * @param  array<int, array<string, mixed>>  $states
-     * @param  array<int, string>  $buffers
-     * @param  array<int, float>  $deadlines
-     * @param  \SplQueue<int>  $queue
-     * @param  resource  $socket
-     */
-    /**
+     * @param  array<int|string, int|string>  $pending
+     * @param  array<int|string, array<string, mixed>>  $states
+     * @param  array<int|string, float>  $deadlines
+     * @param  array<int|string, string>  $buffers
      * @param  \SplQueue<int|string>  $queue
      */
-    private function headDispatchNext(
+    private function redistributeHeadQueue(
+        array &$pending,
+        array &$states,
+        array &$deadlines,
+        array &$buffers,
+        \SplQueue $queue,
+    ): void {
+        if ($queue->isEmpty() || $this->quitting) {
+            return;
+        }
+
+        foreach (array_keys($this->sockets) as $idx) {
+            if (isset($pending[$idx]) || $queue->isEmpty()) {
+                continue;
+            }
+
+            $socket = $this->sockets[$idx];
+
+            if (! is_resource($socket)) {
+                continue;
+            }
+
+            $this->dispatchNextHead($idx, $socket, $pending, $states, $deadlines, $buffers, $queue);
+        }
+    }
+
+    /**
+     * @param  array<int, int|string>  $pending
+     * @param  array<int, array<string, mixed>>  $states
+     * @param  array<int, float>  $deadlines
+     * @param  array<int, string>  $buffers
+     * @param  \SplQueue<int|string>  $queue
+     */
+    private function dispatchNextHead(
         int $idx,
         mixed $socket,
         array &$pending,
         array &$states,
         array &$deadlines,
+        array &$buffers,
         \SplQueue $queue,
-        int &$done,
-        int $total,
-        float $startTime,
-        bool $showProgress,
-    ): void {
-        $done++;
-
-        if ($showProgress && ($done % 50 === 0 || $done === $total)) {
-            $elapsed = microtime(true) - $startTime;
-            $rate = $elapsed > 0 ? round($done / $elapsed, 1) : 0;
-            $pct = (int) round(100 * $done / $total);
-            echo "\r  Progress: $done/$total ($pct%) - {$rate}/sec   ";
-            flush();
+    ): bool {
+        if ($queue->isEmpty() || $this->quitting) {
+            return false;
         }
 
-        if ($this->quitting) {
-            unset($pending[$idx], $deadlines[$idx]);
+        $articleNum = $queue->dequeue();
+        $pending[$idx] = $articleNum;
+        $buffers[$idx] = '';
+        $states[$idx] = ['status' => 'wait_response', 'parser' => $this->headerParser->start()];
+        $deadlines[$idx] = microtime(true) + $this->headResponseDeadlineSeconds;
+        $headId = is_int($articleNum) ? (string) $articleNum : "<$articleNum>";
+        $this->sendCommand($socket, "HEAD $headId");
 
-            return;
-        }
+        return true;
+    }
 
-        if (! $queue->isEmpty()) {
-            $next = $queue->dequeue();
-            $pending[$idx] = $next;
-            $states[$idx] = ['status' => 'wait_response', 'parser' => $this->headerParser->start()];
-            $deadlines[$idx] = microtime(true) + 3.0;
-            $headId = is_int($next) ? (string) $next : "<$next>";
-            $this->sendCommand($socket, "HEAD $headId");
-        } else {
-            unset($pending[$idx], $deadlines[$idx]);
-        }
+    private function headRetryKey(int|string $articleNum): string
+    {
+        return is_int($articleNum) ? "int:$articleNum" : "string:$articleNum";
     }
 
     /** Close and remove a pooled socket when its index is known. */
@@ -1042,16 +993,15 @@ class ParallelNntpDriver implements NntpDriverInterface
     /**
      * Open a single replacement connection: TCP connect → authenticate → GROUP.
      *
-     * Called synchronously when headBatch detects a dead socket. Takes ~100–300 ms,
-     * during which OS buffers absorb data from the remaining active sockets — well
-     * within typical buffer limits. Returns the ready socket resource, or null if the
-     * reconnect fails (caller will simply shrink the pool by one slot).
+     * Called only after the active HEAD read set drains. The reconnect timeout is
+     * deliberately bounded so a provider outage fails the batch instead of turning
+     * unattempted articles into failed results.
      *
      * @return resource|null
      */
     private function reconnectOne(): mixed
     {
-        $reconnectTimeout = 5;
+        $reconnectTimeout = self::RECONNECT_TIMEOUT_SECONDS;
         $socket = $this->connector instanceof \Closure
             ? ($this->connector)($this->endpoint, $reconnectTimeout)
             : @stream_socket_client(
@@ -1068,7 +1018,10 @@ class ParallelNntpDriver implements NntpDriverInterface
         }
 
         stream_set_timeout($socket, $reconnectTimeout);
-        $protocol = NntpProtocol::forResource($socket, $this->readBufferSize);
+        // Read handshake lines byte-by-byte so a server that eagerly sends the
+        // first command response cannot have that response stranded in this
+        // short-lived protocol instance's private read buffer.
+        $protocol = NntpProtocol::forResource($socket, 1);
 
         try {
             $response = $protocol->readResponse();
