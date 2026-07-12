@@ -10,7 +10,7 @@ SpotEngine aims to provide the same core experience, browsing and downloading Sp
 
 - **Modern UI**: Tailwind CSS v4, responsive layout, and a straightforward browsing experience for spots and categories.
 - **Laravel 13**: modern conventions, first-class tooling, expressive APIs. Optionally with Laravel Octane and FrankenPHP for even better performance.
-- **PostgreSQL**: JSONB with GIN indexes for subcategory filtering, `tsvector`/`tsquery` full-text search with a single GIN index across title and description, and a descending index on `spot_posted_at` for fast listing queries
+- **PostgreSQL**: JSONB with GIN indexes for subcategory filtering, dedicated `tsvector`/`tsquery` full-text search indexes for title, description, and combined title+description search, a composite btree index on `(spot_posted_at, id)` for fast listing pagination, and a partial btree index for the unenriched spot backlog
 - **Newznab-compatible API**: Can be used with tools like Sonarr, Radarr, and similar automation software.
 - **Extensible search**: `SearchDriver` contract with PostgreSQL full-text search by default and optional Manticore for larger installations.
 - **Redis caching**: categories cached in Redis, NZB/image files cached to disk with a configurable pruning schedule

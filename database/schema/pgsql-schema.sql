@@ -526,38 +526,38 @@ CREATE INDEX categories_parent_code_index ON public.categories USING btree (pare
 
 
 --
--- Name: idx_spots_fts; Type: INDEX; Schema: public; Owner: -
+-- Name: spots_fts_title_description_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_spots_fts ON public.spots USING gin (to_tsvector('english'::regconfig, (((title)::text || ' '::text) || COALESCE(description, ''::text))));
-
-
---
--- Name: idx_spots_fts_description; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_spots_fts_description ON public.spots USING gin (to_tsvector('english'::regconfig, COALESCE(description, ''::text)));
+CREATE INDEX spots_fts_title_description_index ON public.spots USING gin (to_tsvector('english'::regconfig, (((title)::text || ' '::text) || COALESCE(description, ''::text))));
 
 
 --
--- Name: idx_spots_fts_title_simple; Type: INDEX; Schema: public; Owner: -
+-- Name: spots_fts_description_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_spots_fts_title_simple ON public.spots USING gin (to_tsvector('simple'::regconfig, (title)::text));
-
-
---
--- Name: idx_spots_subcats; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX idx_spots_subcats ON public.spots USING gin (subcategories);
+CREATE INDEX spots_fts_description_index ON public.spots USING gin (to_tsvector('english'::regconfig, COALESCE(description, ''::text)));
 
 
 --
--- Name: idx_spots_unenriched; Type: INDEX; Schema: public; Owner: -
+-- Name: spots_fts_title_simple_index; Type: INDEX; Schema: public; Owner: -
 --
 
-CREATE INDEX idx_spots_unenriched ON public.spots USING btree (id) WHERE (xml_signature IS NULL);
+CREATE INDEX spots_fts_title_simple_index ON public.spots USING gin (to_tsvector('simple'::regconfig, (title)::text));
+
+
+--
+-- Name: spots_subcategories_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX spots_subcategories_index ON public.spots USING gin (subcategories);
+
+
+--
+-- Name: spots_unenriched_index; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX spots_unenriched_index ON public.spots USING btree (id) WHERE (xml_signature IS NULL);
 
 
 --
@@ -677,6 +677,7 @@ COPY public.migrations (id, migration, batch) FROM stdin;
 17	2026_07_11_102112_add_spot_listing_cursor_index_to_spots_table	1
 18	2026_07_11_103822_drop_redundant_spot_posted_at_indexes_from_spots_table	1
 19	2026_07_11_140656_drop_image_segment_from_spots_table	2
+20	2026_07_12_105901_rename_database_indexes_to_laravel_convention	3
 \.
 
 
@@ -684,7 +685,7 @@ COPY public.migrations (id, migration, batch) FROM stdin;
 -- Name: migrations_id_seq; Type: SEQUENCE SET; Schema: public; Owner: -
 --
 
-SELECT pg_catalog.setval('public.migrations_id_seq', 19, true);
+SELECT pg_catalog.setval('public.migrations_id_seq', 20, true);
 
 
 --

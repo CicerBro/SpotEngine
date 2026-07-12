@@ -29,7 +29,7 @@ test('listing payload exposes has nzb without hydrating segment arrays', functio
 test('unenriched backlog has a postgres partial index', function () {
     $definition = DB::table('pg_indexes')
         ->where('tablename', 'spots')
-        ->where('indexname', 'idx_spots_unenriched')
+        ->where('indexname', 'spots_unenriched_index')
         ->value('indexdef');
 
     expect($definition)->toContain('WHERE (xml_signature IS NULL)');
