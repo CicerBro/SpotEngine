@@ -7,6 +7,7 @@ namespace App\Services;
 use App\Models\Spot;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SigningService;
+use App\Services\Nntp\SingleNntpDriver;
 use App\Services\Nntp\SpotParser;
 
 /**
@@ -15,10 +16,17 @@ use App\Services\Nntp\SpotParser;
  * XOVER-indexed spots have description=null, nzb_segments=[], image_segments=[].
  * This service fetches the HEAD for the spot's message-ID and populates those
  * fields from the X-XML header, then persists the result to the database.
+ *
+ * The cached driver is intentionally scoped to this transient service instance.
+ * It avoids reconnecting when one CLI or HTTP operation enriches several spots,
+ * but is not a cross-request or Octane worker connection pool.
  */
 class SpotEnricher
 {
     private const int MAX_RETRIES = 2;
+
+    /** Connection reuse is limited to this SpotEnricher instance. */
+    private ?SingleNntpDriver $driver = null;
 
     public function __construct(
         private readonly NntpService $nntpService,
@@ -96,23 +104,53 @@ class SpotEnricher
     private function fetchHead(Spot $spot): ?array
     {
         for ($attempt = 0; $attempt <= self::MAX_RETRIES; $attempt++) {
-            $nntp = $this->nntpService->makeDriver(driver: 'single');
-
             try {
-                $nntp->connect(showProgress: false);
-
-                return $nntp->head($spot->message_id);
+                return $this->driver()->head($spot->message_id);
             } catch (\Throwable) {
-                // Retry on next iteration.
-            } finally {
-                try {
-                    $nntp->quit();
-                } catch (\Throwable) {
-                    // Ignore quit errors.
-                }
+                $this->disconnectDriver();
             }
         }
 
         return null;
+    }
+
+    private function driver(): SingleNntpDriver
+    {
+        if ($this->driver instanceof SingleNntpDriver && $this->driver->isConnected()) {
+            return $this->driver;
+        }
+
+        $this->disconnectDriver();
+
+        $driver = $this->nntpService->makeDriver(driver: 'single');
+
+        if (! $driver instanceof SingleNntpDriver) {
+            throw new \RuntimeException('Expected SingleNntpDriver for lazy enrichment.');
+        }
+
+        $driver->connect(showProgress: false);
+
+        $config = $this->nntpService->getConfig();
+
+        if (isset($config['groups']['spots'])) {
+            $driver->group((string) $config['groups']['spots']);
+        }
+
+        return $this->driver = $driver;
+    }
+
+    private function disconnectDriver(): void
+    {
+        if ($this->driver === null) {
+            return;
+        }
+
+        try {
+            $this->driver->quit();
+        } catch (\Throwable) {
+            // Ignore quit errors during reconnect.
+        }
+
+        $this->driver = null;
     }
 }
