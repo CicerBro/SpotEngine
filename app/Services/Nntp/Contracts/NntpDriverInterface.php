@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace App\Services\Nntp\Contracts;
 
+use App\Services\Nntp\HeadBatchResult;
+
 interface NntpDriverInterface
 {
     public function connect(bool $showProgress = true): void;
@@ -16,8 +18,13 @@ interface NntpDriverInterface
 
     /**
      * @param  array<int|string>  $articles  Article numbers (int) or message-IDs (string, without angle brackets)
-     * @param  callable(?array<string,string>): void|null  $onArticle
+     * @param  callable(int|string, HeadBatchResult): void|null  $onArticle
      * @return array<int|string, array<string, string>|null>
+     *
+     * Without a callback, this retains the legacy headers-or-null return value.
+     * Streaming callbacks receive a typed result so callers can distinguish a
+     * missing article from a timeout after one fresh-connection retry. Fatal NNTP
+     * failures throw and do not invoke the callback for pending articles.
      */
     public function headBatch(array $articles, bool $showProgress = true, ?callable $onArticle = null): array;
 
