@@ -56,7 +56,6 @@ return [
     'cache' => [
         'nzb_retention_days' => (int) env('CACHE_NZB_RETENTION_DAYS', 30),
         'image_retention_days' => (int) env('CACHE_IMAGE_RETENTION_DAYS', 30),
-        'image_version' => 2,
         'nzb_path' => storage_path('app/cache/nzb'),
         'image_path' => storage_path('app/cache/images'),
     ],
