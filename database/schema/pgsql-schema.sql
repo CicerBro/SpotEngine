@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict 4l1GhpInEYkPbzdcBHNgtNmBbTDRZcSUMohUjJzuURwI26VjSAqfhTvV8dgcLfJ
+\restrict BS5MgkzoBivdpAqnbRBsdLCkZzJuRU0SvWjihcyJ83Sdk6cbafDunrxXkP5vXLA
 
 -- Dumped from database version 18.4 (Debian 18.4-1.pgdg13+1)
 -- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg13+1)
@@ -322,12 +322,12 @@ ALTER SEQUENCE public.user_filters_id_seq OWNED BY public.user_filters.id;
 --
 
 CREATE TABLE public.users (
-    id bigint NOT NULL,
-    username character varying(255) NOT NULL,
-    name character varying(255) NOT NULL,
-    email character varying(255) NOT NULL,
-    password character varying(255) NOT NULL,
-    is_admin boolean DEFAULT false NOT NULL,
+    id bigint CONSTRAINT users_id_not_null1 NOT NULL,
+    username character varying(255) CONSTRAINT users_username_not_null1 NOT NULL,
+    name character varying(255) CONSTRAINT users_name_not_null1 NOT NULL,
+    email character varying(255) CONSTRAINT users_email_not_null1 NOT NULL,
+    password character varying(255) CONSTRAINT users_password_not_null1 NOT NULL,
+    is_admin boolean DEFAULT false CONSTRAINT users_is_admin_not_null1 NOT NULL,
     api_token character varying(32),
     remember_token character varying(100),
     two_factor_secret text,
@@ -342,10 +342,10 @@ CREATE TABLE public.users (
 
 
 --
--- Name: users_id_seq; Type: SEQUENCE; Schema: public; Owner: -
+-- Name: users_id_seq1; Type: SEQUENCE; Schema: public; Owner: -
 --
 
-CREATE SEQUENCE public.users_id_seq
+CREATE SEQUENCE public.users_id_seq1
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
@@ -354,10 +354,10 @@ CREATE SEQUENCE public.users_id_seq
 
 
 --
--- Name: users_id_seq; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
+-- Name: users_id_seq1; Type: SEQUENCE OWNED BY; Schema: public; Owner: -
 --
 
-ALTER SEQUENCE public.users_id_seq OWNED BY public.users.id;
+ALTER SEQUENCE public.users_id_seq1 OWNED BY public.users.id;
 
 
 --
@@ -413,7 +413,7 @@ ALTER TABLE ONLY public.user_filters ALTER COLUMN id SET DEFAULT nextval('public
 -- Name: users id; Type: DEFAULT; Schema: public; Owner: -
 --
 
-ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq'::regclass);
+ALTER TABLE ONLY public.users ALTER COLUMN id SET DEFAULT nextval('public.users_id_seq1'::regclass);
 
 
 --
@@ -695,13 +695,13 @@ ALTER TABLE ONLY public.user_filters
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 4l1GhpInEYkPbzdcBHNgtNmBbTDRZcSUMohUjJzuURwI26VjSAqfhTvV8dgcLfJ
+\unrestrict BS5MgkzoBivdpAqnbRBsdLCkZzJuRU0SvWjihcyJ83Sdk6cbafDunrxXkP5vXLA
 
 --
 -- PostgreSQL database dump
 --
 
-\restrict 3LUYy7D49uOgugS9Rbamh3OB4tH4BB0C6tzxJgNUpx8omoNAyIcQT83EQl71gV7
+\restrict ieg0e4uvgiNzsGKU06bYRyp0nuqPW9InTTnRf5KGEF2LywYP7kttB1HYYUe55hv
 
 -- Dumped from database version 18.4 (Debian 18.4-1.pgdg13+1)
 -- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg13+1)
@@ -761,5 +761,5 @@ SELECT pg_catalog.setval('public.migrations_id_seq', 26, true);
 -- PostgreSQL database dump complete
 --
 
-\unrestrict 3LUYy7D49uOgugS9Rbamh3OB4tH4BB0C6tzxJgNUpx8omoNAyIcQT83EQl71gV7
+\unrestrict ieg0e4uvgiNzsGKU06bYRyp0nuqPW9InTTnRf5KGEF2LywYP7kttB1HYYUe55hv
 
