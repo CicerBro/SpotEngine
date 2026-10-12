@@ -6,6 +6,7 @@ use App\Models\Spot;
 use App\Models\User;
 use App\Services\ListingCacheService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 
 uses(RefreshDatabase::class);
@@ -110,4 +111,74 @@ test('listing cache separates cursor JSON fragments from full page responses', f
 
     $fullPage->assertSuccessful();
     expect($fullPage->viewData('spotCount'))->toBe(12);
+});
+
+test('cached pagination uses each request host and query without changing earlier responses', function (string $store) {
+    config(['spotengine.listing_cache.enabled' => true, 'cache.default' => $store]);
+    $firstUser = User::factory()->create();
+    $secondUser = User::factory()->create();
+    Spot::factory()->count(12)->create();
+
+    $first = $this->actingAs($firstUser)->get('https://first.example.test/?per_page=10&api_token=first-secret');
+    $second = $this->actingAs($secondUser)->get('https://second.example.test/?per_page=10&tracking=second');
+
+    expect($second->viewData('spots')->nextPageUrl())
+        ->toStartWith('https://second.example.test?')
+        ->toContain('tracking=second')
+        ->not->toContain('first-secret');
+    expect($first->viewData('spots')->nextPageUrl())
+        ->toStartWith('https://first.example.test?')
+        ->toContain('api_token=first-secret')
+        ->not->toContain('tracking=second');
+})->with(['array', 'database']);
+
+test('cached JSON pagination uses only the current request query and host', function () {
+    config(['spotengine.listing_cache.enabled' => true]);
+    $user = User::factory()->create();
+    Spot::factory()->count(12)->create();
+
+    $this->actingAs($user)->getJson('https://first.example.test/?per_page=10&api_token=private');
+    $response = $this->actingAs($user)->getJson('https://second.example.test/?per_page=10&tracking=current');
+
+    expect($response->json('next_url'))
+        ->toStartWith('https://second.example.test?')
+        ->toContain('tracking=current')
+        ->not->toContain('private');
+});
+
+test('generation invalidation works on non database stores and preserves unrelated entries', function () {
+    config(['spotengine.listing_cache.enabled' => true, 'cache.default' => 'array']);
+    $service = app(ListingCacheService::class);
+    $request = Request::create('/');
+    Cache::put('unrelated-entry', 'keep', 60);
+    $service->remember($request, fn (): string => 'stale');
+
+    $service->flush();
+
+    expect($service->remember($request, fn (): string => 'fresh'))->toBe('fresh');
+    expect(Cache::get('unrelated-entry'))->toBe('keep');
+});
+
+test('invalidating during cache fill prevents in flight results from becoming current', function () {
+    config(['spotengine.listing_cache.enabled' => true]);
+    $service = app(ListingCacheService::class);
+    $request = Request::create('/');
+
+    $service->remember($request, function () use ($service): string {
+        $service->flush();
+
+        return 'stale';
+    });
+
+    expect($service->remember($request, fn (): string => 'fresh'))->toBe('fresh');
+});
+
+test('evicting a generation cannot reactivate previous listing entries', function () {
+    config(['spotengine.listing_cache.enabled' => true]);
+    $service = app(ListingCacheService::class);
+    $request = Request::create('/');
+    $service->remember($request, fn (): string => 'stale');
+    Cache::forget('spots:listing:generation');
+
+    expect($service->remember($request, fn (): string => 'fresh'))->toBe('fresh');
 });

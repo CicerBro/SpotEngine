@@ -7,11 +7,11 @@ namespace App\Services;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class ListingCacheService
 {
-    private const string TAG = 'spots-listing';
+    private const string GENERATION_KEY = 'spots:listing:generation';
 
     private const string KEY_PREFIX = 'spots:listing:';
 
@@ -26,40 +26,38 @@ class ListingCacheService
         $key = $this->cacheKey($request);
         $ttl = now()->addMinutes($this->ttl());
 
-        if ($this->supportsTags()) {
-            return Cache::tags([self::TAG])->remember($key, $ttl, $callback);
-        }
-
         return Cache::remember($key, $ttl, $callback);
     }
 
     public function flush(): void
     {
-        if (! $this->isEnabled()) {
-            return;
+        Cache::forever(self::GENERATION_KEY, (string) Str::uuid());
+    }
+
+    public function generation(): string
+    {
+        $generation = Cache::get(self::GENERATION_KEY);
+
+        if (\is_string($generation)) {
+            return $generation;
         }
 
-        if ($this->supportsTags()) {
-            Cache::tags([self::TAG])->flush();
+        $generation = (string) Str::uuid();
+        Cache::add(self::GENERATION_KEY, $generation, now()->addYear());
 
-            return;
-        }
-
-        $prefix = config('cache.prefix', '');
-        DB::table('cache')
-            ->where('key', 'like', $prefix . self::KEY_PREFIX . '%')
-            ->delete();
+        return (string) Cache::get(self::GENERATION_KEY, $generation);
     }
 
     private function cacheKey(Request $request): string
     {
         $params = $request->only(self::RELEVANT_PARAMS);
         $params['_response'] = $request->expectsJson() ? 'json' : 'html';
+        $params['_generation'] = $this->generation();
 
         if ($request->boolean('new')) {
             $user = $request->user();
             $params['_user'] = $user?->id;
-            $params['_read_until'] = $user?->spots_read_until?->getTimestamp();
+            $params['_read_until'] = $user?->spots_read_until?->format('U.u');
         }
 
         ksort($params);
@@ -75,10 +73,5 @@ class ListingCacheService
     private function ttl(): int
     {
         return (int) config('spotengine.listing_cache.ttl', 5);
-    }
-
-    private function supportsTags(): bool
-    {
-        return Cache::supportsTags();
     }
 }

@@ -18,8 +18,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Pagination\CursorPaginator;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\AcceptHeader;
 use Symfony\Component\HttpFoundation\AcceptHeaderItem;
@@ -48,10 +48,14 @@ class HomeController extends Controller
             return [
                 'spots' => $this->searchDriver
                     ->cursorPaginate($criteria)
-                    ->withQueryString(),
+                    ->withPath('/'),
                 'spotCount' => $spotCount,
             ];
         });
+
+        $listing['spots'] = (clone $listing['spots'])
+            ->withPath($request->url())
+            ->appends($request->except('cursor'));
 
         $categoriesByCode = Category::allCached()->keyBy('code');
 
