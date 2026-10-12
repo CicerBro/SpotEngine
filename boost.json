@@ -10,10 +10,11 @@
     "nightwatch": false,
     "sail": false,
     "skills": [
+        "infer-conventions",
         "fortify-development",
         "laravel-best-practices",
+        "testing-best-practices",
         "octane-development",
-        "pest-testing",
         "tailwindcss-development"
     ]
 }
