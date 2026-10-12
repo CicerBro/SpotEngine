@@ -122,3 +122,66 @@ test('failed external synchronization preserves the durable queue for retry', fu
 
     expect(DB::table('spot_search_sync_queue')->where('spot_id', $spot->id)->exists())->toBeTrue();
 });
+
+test('successful synchronization invalidates listings warmed before the index catches up', function () {
+    config(['spotengine.listing_cache.enabled' => true]);
+    $spot = Spot::factory()->create();
+    app(SpotMutationService::class)->update($spot, ['title' => 'Index me']);
+    $cache = app(ListingCacheService::class);
+    $request = Request::create('/');
+    $cache->remember($request, fn (): string => 'stale index result');
+    $driver = Mockery::mock(SearchDriver::class);
+    $driver->shouldReceive('usesExternalIndex')->andReturnTrue();
+    $driver->shouldReceive('ensureIndex')->once();
+    $driver->shouldReceive('indexSpots')->once();
+    $driver->shouldReceive('deleteSpots')->once()->with([]);
+
+    (new SearchIndexSynchronizer($driver))->synchronizePending();
+
+    expect($cache->remember($request, fn (): string => 'current index result'))->toBe('current index result');
+});
+
+test('failed synchronization leaves the listing cache generation unchanged', function () {
+    $spot = Spot::factory()->create();
+    app(SpotMutationService::class)->update($spot, ['title' => 'Retry index']);
+    $generation = app(ListingCacheService::class)->generation();
+    $driver = Mockery::mock(SearchDriver::class);
+    $driver->shouldReceive('usesExternalIndex')->andReturnTrue();
+    $driver->shouldReceive('ensureIndex')->once();
+    $driver->shouldReceive('indexSpots')->once();
+    $driver->shouldReceive('deleteSpots')->once()->andThrow(new RuntimeException('delete unavailable'));
+
+    expect(fn () => (new SearchIndexSynchronizer($driver))->synchronizePending())
+        ->toThrow(RuntimeException::class, 'delete unavailable');
+
+    expect(app(ListingCacheService::class)->generation())->toBe($generation);
+    $this->assertDatabaseHas('spot_search_sync_queue', ['spot_id' => $spot->id]);
+});
+
+test('bulk acknowledgement preserves a concurrently replaced token and uses one delete per batch', function () {
+    $spots = Spot::factory()->count(2)->create();
+    $mutations = app(SpotMutationService::class);
+    foreach ($spots as $spot) {
+        $mutations->update($spot, ['title' => 'Queued']);
+    }
+    $deleteQueries = 0;
+    DB::listen(function (QueryExecuted $query) use (&$deleteQueries): void {
+        if (str_starts_with($query->sql, 'delete from "spot_search_sync_queue"')) {
+            $deleteQueries++;
+        }
+    });
+    $driver = Mockery::mock(SearchDriver::class);
+    $driver->shouldReceive('usesExternalIndex')->andReturnTrue();
+    $driver->shouldReceive('ensureIndex')->once();
+    $driver->shouldReceive('indexSpots')->once()->andReturnUsing(function () use ($spots, $mutations): void {
+        $mutations->update($spots[0], ['title' => 'Changed during sync']);
+    });
+    $driver->shouldReceive('deleteSpots')->once()->with([]);
+
+    $processed = (new SearchIndexSynchronizer($driver))->synchronizePending(limit: 2);
+
+    expect($processed)->toBe(2);
+    expect($deleteQueries)->toBe(1);
+    $this->assertDatabaseHas('spot_search_sync_queue', ['spot_id' => $spots[0]->id]);
+    $this->assertDatabaseMissing('spot_search_sync_queue', ['spot_id' => $spots[1]->id]);
+});

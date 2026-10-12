@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\Search;
 
 use App\Models\Spot;
+use App\Services\ListingCacheService;
 use App\Services\Search\Contracts\SearchDriver;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
@@ -50,15 +51,16 @@ final readonly class SearchIndexSynchronizer
 
             $this->searchDriver->indexSpots($spots);
             $this->searchDriver->deleteSpots($deletedIds);
+            app(ListingCacheService::class)->flush();
 
-            DB::transaction(function () use ($pending): void {
+            DB::table('spot_search_sync_queue')->where(function (\Illuminate\Database\Query\Builder $query) use ($pending): void {
                 foreach ($pending as $queuedSpot) {
-                    DB::table('spot_search_sync_queue')
-                        ->where('spot_id', $queuedSpot->spot_id)
-                        ->where('token', $queuedSpot->token)
-                        ->delete();
+                    $query->orWhere(function (\Illuminate\Database\Query\Builder $row) use ($queuedSpot): void {
+                        $row->where('spot_id', $queuedSpot->spot_id)
+                            ->where('token', $queuedSpot->token);
+                    });
                 }
-            });
+            })->delete();
 
             $processed += $pending->count();
         }
@@ -71,12 +73,14 @@ final readonly class SearchIndexSynchronizer
         $this->assertExternalIndex();
         $this->searchDriver->ensureIndex();
         $this->searchDriver->truncateIndex();
+        app(ListingCacheService::class)->flush();
         $indexed = 0;
 
         $this->indexableSpots()
             ->orderBy('id')
             ->chunkById($batchSize, function (EloquentCollection $spots) use (&$indexed): void {
                 $this->searchDriver->indexSpots($spots);
+                app(ListingCacheService::class)->flush();
                 $indexed += $spots->count();
             });
 

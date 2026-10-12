@@ -3,8 +3,11 @@
 declare(strict_types=1);
 
 use App\Models\Spot;
+use App\Services\ListingCacheService;
 use App\Services\Search\Contracts\SearchDriver;
+use App\Services\Search\SearchIndexSynchronizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Request;
 
 uses(RefreshDatabase::class);
 
@@ -45,4 +48,19 @@ test('reconciliation check fails when manticore has missing documents', function
     $this->artisan('spot:search-rebuild', ['--check' => true, '--batch' => 100])
         ->assertFailed()
         ->expectsOutputToContain('Search index parity check failed');
+});
+
+test('rebuilding an empty index invalidates previously cached listings', function () {
+    config(['spotengine.listing_cache.enabled' => true]);
+    $cache = app(ListingCacheService::class);
+    $request = Request::create('/');
+    $cache->remember($request, fn (): string => 'old index listing');
+    $driver = Mockery::mock(SearchDriver::class);
+    $driver->shouldReceive('usesExternalIndex')->andReturnTrue();
+    $driver->shouldReceive('ensureIndex')->twice();
+    $driver->shouldReceive('truncateIndex')->once();
+
+    expect((new SearchIndexSynchronizer($driver))->rebuild())->toBe(0);
+
+    expect($cache->remember($request, fn (): string => 'empty index listing'))->toBe('empty index listing');
 });
