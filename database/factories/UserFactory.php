@@ -27,6 +27,7 @@ class UserFactory extends Factory
             'is_admin' => false,
             'api_token' => User::generateApiKey(),
             'remember_token' => Str::random(10),
+            'spots_read_until' => null,
         ];
     }
 

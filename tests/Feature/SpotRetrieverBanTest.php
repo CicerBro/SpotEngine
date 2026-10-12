@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Enums\SpotBanType;
+use App\Enums\SpotListKind;
 use App\Models\SpotBan;
 use App\Services\Nntp\Contracts\NntpDriverInterface;
 use App\Services\Nntp\NntpService;

@@ -16,7 +16,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
-test('old-to-new retrieval checkpoints after each completed batch', function () {
+test('old-to-new retrieval checkpoints each completed batch after its callback', function () {
     $state = UsenetState::forNewsgroup('free.pt');
     $service = new IntegrityTestSpotRetriever;
     $checkpointObservations = [];
@@ -29,7 +29,7 @@ test('old-to-new retrieval checkpoints after each completed batch', function () 
         },
     );
 
-    expect($checkpointObservations)->toBe([30, 60, 90, 100])
+    expect($checkpointObservations)->toBe([null, 30, 60, 90])
         ->and($state->fresh()->last_article_id)->toBe(100)
         ->and($result['highestArticle'])->toBe(100);
 });
