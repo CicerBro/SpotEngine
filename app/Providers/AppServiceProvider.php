@@ -61,6 +61,8 @@ class AppServiceProvider extends ServiceProvider
             if (! $view->offsetExists('categoriesByCode')) {
                 $view->with('categoriesByCode', Category::allCached()->keyBy('code'));
             }
+
+            $view->with('unreadCount', auth()->user()?->unreadSpotCount() ?? 0);
         });
     }
 }

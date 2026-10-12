@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 use App\Models\Spot;
 use App\Models\User;
+use App\Services\SpotMutationService;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -152,4 +155,49 @@ test('mark all read endpoint clears bold title styling', function () {
     $after->assertSuccessful();
     expect($after->getContent())->not->toMatch('/font-bold[^>]*>\s*Unread title after mark read/s');
     expect($after->getContent())->toMatch('/font-normal[^>]*>\s*Unread title after mark read/s');
+});
+
+test('unread count is cached across model instances and pages', function () {
+    $user = User::factory()->create();
+    Spot::factory()->count(2)->create();
+    $countQueries = 0;
+    DB::listen(function (QueryExecuted $query) use (&$countQueries): void {
+        if (str_contains($query->sql, 'count(*)') && str_contains($query->sql, '"spots"')) {
+            $countQueries++;
+        }
+    });
+
+    expect($user->unreadSpotCount())->toBe(2);
+    $this->actingAs($user->fresh())->get('/')->assertSuccessful();
+    $queriesAfterFirstPage = $countQueries;
+    $this->actingAs($user->fresh())->get('/profile')->assertSuccessful();
+
+    expect($countQueries)->toBe($queriesAfterFirstPage);
+});
+
+test('unread counts isolate users and refresh after ingestion deletion and watermark changes', function () {
+    config(['spotengine.listing_cache.enabled' => false]);
+    $this->freezeTime();
+    $user = User::factory()->create();
+    $otherUser = User::factory()->create(['spots_read_until' => now()]);
+    $spot = Spot::factory()->create(['spot_posted_at' => now()->subHour()]);
+    $mutations = app(SpotMutationService::class);
+    expect($user->unreadSpotCount())->toBe(1);
+    expect($otherUser->unreadSpotCount())->toBe(0);
+
+    $mutations->insertOrIgnore([[
+        'message_id' => 'new-unread@example.test',
+        'title' => 'New unread',
+        'category_code' => '01',
+        'spot_posted_at' => now()->addMinute(),
+    ]]);
+
+    expect($user->fresh()->unreadSpotCount())->toBe(2);
+    expect($otherUser->fresh()->unreadSpotCount())->toBe(1);
+
+    $mutations->delete([$spot->id]);
+    expect($user->fresh()->unreadSpotCount())->toBe(1);
+
+    $user->markAllSpotsRead();
+    expect($user->fresh()->unreadSpotCount())->toBe(0);
 });

@@ -31,9 +31,6 @@ $sidebarTree = $categoryTree ?? [];
     {{-- FILTERS (scrollable) --}}
     <div class="min-h-0 flex-1 overflow-y-auto py-4">
         @auth
-            @php
-                $unreadCount = auth()->user()->unreadSpotCount();
-            @endphp
             <div class="mb-4 px-3">
                 <a href="{{ route('home', ['new' => 1]) }}"
                    class="flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors {{ request()->boolean('new') ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100' }}">

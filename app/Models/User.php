@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Models;
 
+use App\Services\ListingCacheService;
 use Carbon\CarbonImmutable;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -14,6 +15,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -79,13 +81,22 @@ class User extends Authenticatable
 
     public function unreadSpotCount(): int
     {
-        $query = Spot::query();
+        $readUntil = $this->spots_read_until;
+        $key = 'spots:unread:' . sha1(serialize([
+            $this->id,
+            $readUntil?->format('U.u'),
+            app(ListingCacheService::class)->generation(),
+        ]));
 
-        if ($this->spots_read_until !== null) {
-            $query->where('spot_posted_at', '>', $this->spots_read_until);
-        }
+        return (int) Cache::remember($key, now()->addMinutes(5), static function () use ($readUntil): int {
+            $query = Spot::query();
 
-        return $query->count();
+            if ($readUntil !== null) {
+                $query->where('spot_posted_at', '>', $readUntil);
+            }
+
+            return $query->count();
+        });
     }
 
     public function markAllSpotsRead(): void
