@@ -31,6 +31,30 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | NNTP payload limits
+    |--------------------------------------------------------------------------
+    | Bound untrusted article aggregation and decoding before allocating output.
+    | Byte limits include encoded transport data unless named decoded or output.
+    */
+    'payload_limits' => [
+        'nntp_line_bytes' => (int) env('NNTP_MAX_LINE_BYTES', 1_048_576),
+        'nntp_header_bytes' => (int) env('NNTP_MAX_HEADER_BYTES', 2_097_152),
+        'nntp_body_bytes' => (int) env('NNTP_MAX_BODY_BYTES', 16_777_216),
+        'nntp_article_bytes' => (int) env('NNTP_MAX_ARTICLE_BYTES', 18_874_368),
+        'nntp_response_bytes' => (int) env('NNTP_MAX_RESPONSE_BYTES', 67_108_864),
+        'nntp_response_lines' => (int) env('NNTP_MAX_RESPONSE_LINES', 100_000),
+        'nzb_segments' => (int) env('NZB_MAX_SEGMENTS', 128),
+        'nzb_input_bytes' => (int) env('NZB_MAX_INPUT_BYTES', 33_554_432),
+        'nzb_compressed_bytes' => (int) env('NZB_MAX_COMPRESSED_BYTES', 16_777_216),
+        'nzb_output_bytes' => (int) env('NZB_MAX_OUTPUT_BYTES', 67_108_864),
+        'image_segments' => (int) env('IMAGE_MAX_SEGMENTS', 64),
+        'image_input_bytes' => (int) env('IMAGE_MAX_INPUT_BYTES', 50_000_000),
+        'image_decoded_bytes' => (int) env('IMAGE_MAX_DECODED_BYTES', 25_000_000),
+        'image_pixels' => (int) env('IMAGE_MAX_PIXELS', 40_000_000),
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
     | Spotnet moderation
     |--------------------------------------------------------------------------
     | Trusted protocol keys used to authenticate globally-authorized moderation

@@ -91,6 +91,49 @@ test('a corrupt current-version cache entry is deleted and refetched', function 
         ->and(File::get($cachePath))->toBe($this->expectedImage);
 });
 
+test('rejects excessive image segments before connecting to NNTP', function () {
+    config()->set('spotengine.payload_limits.image_segments', 1);
+    $spot = previewSpot(['first@test', 'second@test']);
+    $nntp = Mockery::mock(NntpService::class);
+    $nntp->shouldNotReceive('makeDriver');
+    $enricher = Mockery::mock(SpotEnricher::class);
+    $enricher->shouldReceive('enrich')->once()->with($spot);
+    $service = new SpotImageService($nntp, $enricher, new SpotImageDecoder);
+
+    expect(fn () => $service->fetch($spot))->toThrow(UnexpectedValueException::class, 'segment count');
+});
+
+test('rejects oversized image aggregation before fetching later articles or caching', function () {
+    config()->set('spotengine.payload_limits.image_input_bytes', 5);
+    $spot = previewSpot(['first@test', 'second@test', 'third@test']);
+    $driver = Mockery::mock(SingleNntpDriver::class);
+    $driver->shouldReceive('body')->once()->with('first@test')->andReturn('first');
+    $driver->shouldReceive('body')->once()->with('second@test')->andReturn('second');
+    $driver->shouldNotReceive('body')->with('third@test');
+    $nntp = Mockery::mock(NntpService::class);
+    $enricher = Mockery::mock(SpotEnricher::class);
+    $service = new SpotImageService($nntp, $enricher, new SpotImageDecoder);
+
+    expect(fn () => $service->fetchWithDriver($spot, $driver, selectGroup: false))
+        ->toThrow(UnexpectedValueException::class, 'input exceeds');
+    expect(File::exists($service->cachePath($spot->image_segments)))->toBeFalse();
+});
+
+test('oversized cached previews are discarded before NNTP refetch', function () {
+    config()->set('spotengine.payload_limits.image_decoded_bytes', strlen($this->expectedImage));
+    $spot = previewSpot(['oversized@test']);
+    $driver = previewDriver($spot->image_segments, [$this->articleBodies[0] . $this->articleBodies[1]]);
+    $enricher = Mockery::mock(SpotEnricher::class);
+    $enricher->shouldReceive('enrich')->once()->with($spot);
+    $service = new SpotImageService(previewNntpService($driver), $enricher, new SpotImageDecoder);
+    $path = $service->cachePath($spot->image_segments);
+    File::ensureDirectoryExists(dirname($path));
+    File::put($path, str_repeat('x', strlen($this->expectedImage) + 1));
+
+    expect($service->fetch($spot)['data'])->toBe($this->expectedImage);
+    expect(File::get($path))->toBe($this->expectedImage);
+});
+
 /**
  * @param  list<string>  $segments
  */

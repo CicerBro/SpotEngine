@@ -348,12 +348,13 @@ class ParallelNntpDriver implements NntpDriverInterface
             }
         };
 
-        $complete = function (int $idx, mixed $socket, HeadBatchResult $result) use (&$pending, &$states, &$deadlines, &$buffers, $queue, $record, $markDone): void {
+        $complete = function (int $idx, mixed $socket, HeadBatchResult $result) use (&$pending, &$states, &$deadlines, &$buffers, $queue, $record, $markDone): bool {
             $articleId = $pending[$idx];
             unset($pending[$idx], $states[$idx], $deadlines[$idx], $buffers[$idx]);
             $record($articleId, $result);
             $markDone();
-            $this->dispatchNextHead($idx, $socket, $pending, $states, $deadlines, $buffers, $queue);
+
+            return $this->dispatchNextHead($idx, $socket, $pending, $states, $deadlines, $buffers, $queue);
         };
 
         $retire = function (int $idx) use (&$pending, &$states, &$deadlines, &$buffers, &$retryCounts, &$reconnectsNeeded, $queue, $record, $markDone): void {
@@ -453,7 +454,9 @@ class ParallelNntpDriver implements NntpDriverInterface
                         continue;
                     }
 
-                    $data = @fread($socket, $this->readBufferSize);
+                    $maxBytes = max(1, (int) config('spotengine.payload_limits.nntp_header_bytes', 2_097_152));
+                    $maxLineBytes = max(1, (int) config('spotengine.payload_limits.nntp_line_bytes', 1_048_576));
+                    $data = @fread($socket, min($this->readBufferSize, $maxBytes - $states[$idx]['bytes'] + 1));
 
                     if ($data === false || ($data === '' && feof($socket))) {
                         $retire($idx);
@@ -465,13 +468,28 @@ class ParallelNntpDriver implements NntpDriverInterface
                         continue;
                     }
 
+                    $states[$idx]['bytes'] += strlen($data);
+                    if ($states[$idx]['bytes'] > $maxBytes) {
+                        $this->dropIncompleteXoverSockets(array_keys($pending));
+                        throw new NntpException('HEAD response exceeds payload limit', operation: 'HEAD');
+                    }
                     $buffers[$idx] .= $data;
 
-                    while (isset($pending[$idx])) {
+                    while (true) {
                         $newlinePos = strpos($buffers[$idx], "\n");
 
                         if ($newlinePos === false) {
+                            if (strlen($buffers[$idx]) >= $maxLineBytes) {
+                                $this->dropIncompleteXoverSockets(array_keys($pending));
+                                throw new NntpException('HEAD line exceeds payload limit', operation: 'HEAD');
+                            }
                             break;
+                        }
+
+                        if ($newlinePos + 1 > $maxLineBytes
+                            || ++$states[$idx]['lines'] > max(1, (int) config('spotengine.payload_limits.nntp_response_lines', 100_000))) {
+                            $this->dropIncompleteXoverSockets(array_keys($pending));
+                            throw new NntpException('HEAD response exceeds payload limit', operation: 'HEAD');
                         }
 
                         $line = rtrim(substr($buffers[$idx], 0, $newlinePos), "\r");
@@ -485,13 +503,17 @@ class ParallelNntpDriver implements NntpDriverInterface
                             }
 
                             if (preg_match('/^430(?:\s|$)/', $line) === 1) {
-                                $complete($idx, $socket, HeadBatchResult::missing());
+                                if (! $complete($idx, $socket, HeadBatchResult::missing())) {
+                                    break;
+                                }
 
                                 continue;
                             }
 
                             if ($onArticle === null) {
-                                $complete($idx, $socket, HeadBatchResult::missing());
+                                if (! $complete($idx, $socket, HeadBatchResult::missing())) {
+                                    break;
+                                }
 
                                 continue;
                             }
@@ -500,9 +522,11 @@ class ParallelNntpDriver implements NntpDriverInterface
                         }
 
                         if ($line === '.') {
-                            $complete($idx, $socket, HeadBatchResult::success(
+                            if (! $complete($idx, $socket, HeadBatchResult::success(
                                 $this->headerParser->finish($states[$idx]['parser']),
-                            ));
+                            ))) {
+                                break;
+                            }
 
                             continue;
                         }
@@ -617,6 +641,10 @@ class ParallelNntpDriver implements NntpDriverInterface
         }
 
         $deadline = microtime(true) + $this->timeout;
+        $responseBytes = 0;
+        $responseLines = 0;
+        $maxBytes = max(1, (int) config('spotengine.payload_limits.nntp_response_bytes', 67_108_864));
+        $maxLineBytes = max(1, (int) config('spotengine.payload_limits.nntp_line_bytes', 1_048_576));
 
         while ($active !== [] && microtime(true) < $deadline) {
             $readSet = array_values(array_intersect_key($this->sockets, array_flip($active)));
@@ -629,7 +657,7 @@ class ParallelNntpDriver implements NntpDriverInterface
 
             foreach ($readSet as $socket) {
                 $idx = $socketIdToIdx[(int) $socket];
-                $data = @fread($socket, $this->readBufferSize);
+                $data = @fread($socket, min($this->readBufferSize, $maxBytes - $responseBytes + 1));
 
                 if ($data === false || ($data === '' && feof($socket))) {
                     $failedConnections = \count($active);
@@ -645,13 +673,28 @@ class ParallelNntpDriver implements NntpDriverInterface
                     continue;
                 }
 
+                $responseBytes += strlen($data);
+                if ($responseBytes > $maxBytes) {
+                    $this->dropIncompleteXoverSockets($active);
+                    throw new NntpException('XOVER response exceeds payload limit', operation: 'XOVER');
+                }
                 $buffers[$idx] .= $data;
 
                 while (true) {
                     $newlinePos = strpos($buffers[$idx], "\n");
 
                     if ($newlinePos === false) {
+                        if (strlen($buffers[$idx]) >= $maxLineBytes) {
+                            $this->dropIncompleteXoverSockets($active);
+                            throw new NntpException('XOVER line exceeds payload limit', operation: 'XOVER');
+                        }
                         break;
+                    }
+
+                    if ($newlinePos + 1 > $maxLineBytes
+                        || ++$responseLines > max(1, (int) config('spotengine.payload_limits.nntp_response_lines', 100_000))) {
+                        $this->dropIncompleteXoverSockets($active);
+                        throw new NntpException('XOVER response exceeds payload limit', operation: 'XOVER');
                     }
 
                     $line = rtrim(substr($buffers[$idx], 0, $newlinePos), "\r");
@@ -795,10 +838,6 @@ class ParallelNntpDriver implements NntpDriverInterface
             }
 
             foreach (array_keys($pending) as $idx) {
-                if (! isset($pending[$idx])) {
-                    continue;
-                }
-
                 $socket = $pending[$idx]['socket'];
                 $inRead = $read !== null && \in_array($socket, $read, true);
                 $inWrite = $write !== null && \in_array($socket, $write, true);
@@ -925,7 +964,7 @@ class ParallelNntpDriver implements NntpDriverInterface
         }
 
         foreach (array_keys($this->sockets) as $idx) {
-            if (isset($pending[$idx]) || $queue->isEmpty()) {
+            if (isset($pending[$idx])) {
                 continue;
             }
 
@@ -935,7 +974,9 @@ class ParallelNntpDriver implements NntpDriverInterface
                 continue;
             }
 
-            $this->dispatchNextHead($idx, $socket, $pending, $states, $deadlines, $buffers, $queue);
+            if (! $this->dispatchNextHead($idx, $socket, $pending, $states, $deadlines, $buffers, $queue)) {
+                break;
+            }
         }
     }
 
@@ -962,7 +1003,7 @@ class ParallelNntpDriver implements NntpDriverInterface
         $articleNum = $queue->dequeue();
         $pending[$idx] = $articleNum;
         $buffers[$idx] = '';
-        $states[$idx] = ['status' => 'wait_response', 'parser' => $this->headerParser->start()];
+        $states[$idx] = ['status' => 'wait_response', 'parser' => $this->headerParser->start(), 'bytes' => 0, 'lines' => 0];
         $deadlines[$idx] = microtime(true) + $this->headResponseDeadlineSeconds;
         $headId = is_int($articleNum) ? (string) $articleNum : "<$articleNum>";
         $this->sendCommand($socket, "HEAD $headId");
@@ -1050,7 +1091,9 @@ class ParallelNntpDriver implements NntpDriverInterface
                 }
             }
         } catch (NntpException) {
-            @fclose($socket);
+            if (is_resource($socket)) {
+                @fclose($socket);
+            }
 
             return null;
         }

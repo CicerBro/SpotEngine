@@ -319,7 +319,9 @@ class SingleNntpDriver implements NntpDriverInterface
             throw NntpException::unexpected('HEAD', $response);
         }
 
-        return (new SpotnetHeaderParser)->parse($this->getTextResponse());
+        return (new SpotnetHeaderParser)->parse($this->getTextResponse(
+            max(1, (int) config('spotengine.payload_limits.nntp_header_bytes', 2_097_152)),
+        ));
     }
 
     /**
@@ -337,7 +339,9 @@ class SingleNntpDriver implements NntpDriverInterface
             throw NntpException::unexpected('ARTICLE', $response);
         }
 
-        $lines = $this->getTextResponse();
+        $lines = $this->getTextResponse(
+            max(1, (int) config('spotengine.payload_limits.nntp_article_bytes', 18_874_368)),
+        );
         $separator = array_search('', $lines, true);
         $headerLines = $separator === false ? $lines : array_slice($lines, 0, $separator);
         $bodyLines = $separator === false ? [] : array_slice($lines, $separator + 1);
@@ -377,7 +381,7 @@ class SingleNntpDriver implements NntpDriverInterface
 
     public function quit(): void
     {
-        if ($this->socket) {
+        if (is_resource($this->socket)) {
             try {
                 $this->sendCommand('QUIT');
                 $this->readResponse();
@@ -385,10 +389,12 @@ class SingleNntpDriver implements NntpDriverInterface
                 // Ignore errors during quit
             }
 
-            fclose($this->socket);
-            $this->socket = null;
-            $this->protocol = null;
+            if (is_resource($this->socket)) {
+                fclose($this->socket);
+            }
         }
+        $this->socket = null;
+        $this->protocol = null;
     }
 
     /**
@@ -398,11 +404,11 @@ class SingleNntpDriver implements NntpDriverInterface
      */
     public function detach(): void
     {
-        if ($this->socket !== null) {
+        if (is_resource($this->socket)) {
             fclose($this->socket);
-            $this->socket = null;
-            $this->protocol = null;
         }
+        $this->socket = null;
+        $this->protocol = null;
     }
 
     public function getConnectionCount(): int
@@ -412,7 +418,7 @@ class SingleNntpDriver implements NntpDriverInterface
 
     public function isConnected(): bool
     {
-        return $this->socket !== null && ! feof($this->socket);
+        return is_resource($this->socket) && ! feof($this->socket);
     }
 
     private function authenticate(): void
@@ -430,20 +436,20 @@ class SingleNntpDriver implements NntpDriverInterface
         }
     }
 
-    private function getTextResponse(): array
+    private function getTextResponse(?int $maxBytes = null): array
     {
         if ($this->compressionEnabled && $this->lastResponse instanceof NntpResponse &&
             stripos($this->lastResponse->statusText, 'COMPRESS=GZIP') !== false) {
-            return $this->getCompressedTextResponse();
+            return $this->getCompressedTextResponse($maxBytes);
         }
 
-        return $this->protocol()->readTextResponse();
+        return $this->protocol()->readTextResponse($maxBytes);
     }
 
     /** @return array<string> */
-    private function getCompressedTextResponse(): array
+    private function getCompressedTextResponse(?int $maxBytes = null): array
     {
-        return $this->protocol()->readCompressedTextResponse();
+        return $this->protocol()->readCompressedTextResponse($maxBytes);
     }
 
     private function sendCommand(string $command): void
@@ -458,7 +464,7 @@ class SingleNntpDriver implements NntpDriverInterface
 
     private function protocol(): NntpProtocol
     {
-        if (! $this->socket) {
+        if (! is_resource($this->socket)) {
             throw new NntpException('Not connected');
         }
 

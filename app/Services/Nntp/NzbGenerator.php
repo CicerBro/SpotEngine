@@ -29,11 +29,17 @@ class NzbGenerator
             throw new \InvalidArgumentException('No NZB segments provided');
         }
 
+        if (count($segments) > $this->limit('nzb_segments', 128)) {
+            throw new \RuntimeException('NZB segment count exceeds payload limit');
+        }
+
         // Select the group
         $this->nntp->group($group);
 
         // Fetch each segment and combine
         $rawParts = [];
+        $bytes = 0;
+        $lines = 0;
 
         foreach ($segments as $segmentId) {
             $rawPart = $this->nntp->body($segmentId);
@@ -42,6 +48,12 @@ class NzbGenerator
                 throw new \RuntimeException("Empty response for NNTP segment {$segmentId}");
             }
 
+            $bytes += strlen($rawPart) + ($rawParts === [] ? 0 : 2);
+            $lines += substr_count($rawPart, "\n") + substr_count($rawPart, "\r") - substr_count($rawPart, "\r\n") + 1;
+            if ($bytes > $this->limit('nzb_input_bytes', 33_554_432)
+                || $lines > $this->limit('nntp_response_lines', 100_000)) {
+                throw new \RuntimeException('NZB input exceeds payload limit');
+            }
             $rawParts[] = $rawPart;
         }
 
@@ -77,10 +89,19 @@ class NzbGenerator
         // =A -> NULL, =B -> CR, =C -> LF, =D -> =
         $data = $this->unspecialZipStr($data);
 
+        if (! str_contains($data, '<nzb') && ! str_contains($data, '<?xml')
+            && strlen($data) > $this->limit('nzb_compressed_bytes', 16_777_216)) {
+            throw new \RuntimeException('Compressed NZB exceeds payload limit');
+        }
+
         // Step 4: Try to decompress - try ALL methods
         $decompressed = $this->tryDecompress($data);
         if ($decompressed !== null) {
             $data = $decompressed;
+        }
+
+        if (strlen($data) > $this->limit('nzb_output_bytes', 67_108_864)) {
+            throw new \RuntimeException('Decoded NZB exceeds payload limit');
         }
 
         // Step 5: Try to find NZB content in the data
@@ -142,6 +163,7 @@ class NzbGenerator
      */
     private function tryDecompress(string $data): ?string
     {
+        $maxBytes = $this->limit('nzb_output_bytes', 67_108_864);
         // Already XML?
         if (str_contains($data, '<nzb') || str_contains($data, '<?xml')) {
             return $data;
@@ -154,7 +176,7 @@ class NzbGenerator
 
         // Try gzip (1f 8b)
         if ($firstBytes[0] === 0x1F && $firstBytes[1] === 0x8B) {
-            $result = @gzdecode($data);
+            $result = @gzdecode($data, $maxBytes);
             if ($result !== false) {
                 return $result;
             }
@@ -162,14 +184,14 @@ class NzbGenerator
 
         // Try zlib (78 xx) - various compression levels
         if ($firstBytes[0] === 0x78) {
-            $result = @gzuncompress($data);
+            $result = @gzuncompress($data, $maxBytes);
             if ($result !== false) {
                 return $result;
             }
         }
 
         // Try raw deflate at offset 0
-        $result = @gzinflate($data);
+        $result = @gzinflate($data, $maxBytes);
         if ($result !== false && $this->looksLikeNzb($result)) {
             return $result;
         }
@@ -179,19 +201,19 @@ class NzbGenerator
         for ($offset = 1; $offset <= 20; $offset++) {
             if (\strlen($data) > $offset) {
                 // Try raw deflate
-                $result = @gzinflate(substr($data, $offset));
+                $result = @gzinflate(substr($data, $offset), $maxBytes);
                 if ($result !== false && $this->looksLikeNzb($result)) {
                     return $result;
                 }
 
                 // Try zlib
-                $result = @gzuncompress(substr($data, $offset));
+                $result = @gzuncompress(substr($data, $offset), $maxBytes);
                 if ($result !== false && $this->looksLikeNzb($result)) {
                     return $result;
                 }
 
                 // Try gzip
-                $result = @gzdecode(substr($data, $offset));
+                $result = @gzdecode(substr($data, $offset), $maxBytes);
                 if ($result !== false && $this->looksLikeNzb($result)) {
                     return $result;
                 }
@@ -210,38 +232,39 @@ class NzbGenerator
         foreach ($zlibHeaders as $header) {
             // Calculate and append Adler-32 checksum for valid zlib stream
             $zlibData = $header . $data;
-            $result = @gzuncompress($zlibData);
+            $result = @gzuncompress($zlibData, $maxBytes);
             if ($result !== false && $this->looksLikeNzb($result)) {
                 return $result;
             }
         }
 
-        // Try bzdecompress if available
-        if (function_exists('bzdecompress')) {
-            $result = @bzdecompress($data);
-            if (\is_string($result) && $this->looksLikeNzb($result)) {
-                return $result;
-            }
+        if (str_starts_with($data, 'BZh')) {
+            throw new \RuntimeException('Bzip2 NZB payloads cannot be decompressed with a bounded output');
         }
 
         // Try base64 decode + decompress (some older spots use this)
         $decoded = @base64_decode($data, true);
         if ($decoded !== false && $decoded !== '') {
-            $result = @gzinflate($decoded);
+            $result = @gzinflate($decoded, $maxBytes);
             if ($result !== false && $this->looksLikeNzb($result)) {
                 return $result;
             }
-            $result = @gzuncompress($decoded);
+            $result = @gzuncompress($decoded, $maxBytes);
             if ($result !== false && $this->looksLikeNzb($result)) {
                 return $result;
             }
-            $result = @gzdecode($decoded);
+            $result = @gzdecode($decoded, $maxBytes);
             if ($result !== false && $this->looksLikeNzb($result)) {
                 return $result;
             }
         }
 
         return null;
+    }
+
+    private function limit(string $key, int $default): int
+    {
+        return max(1, (int) config('spotengine.payload_limits.' . $key, $default));
     }
 
     /**

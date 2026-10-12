@@ -11,10 +11,6 @@ use App\Services\Nntp\SpotImageDecoder;
 
 class SpotImageService
 {
-    private const int MAX_IMAGE_BYTES = 25_000_000;
-
-    private const int MAX_IMAGE_PIXELS = 40_000_000;
-
     public function __construct(
         private readonly NntpService $nntpService,
         private readonly SpotEnricher $enricher,
@@ -96,6 +92,10 @@ class SpotImageService
             return [];
         }
 
+        if (count($segments) > max(1, (int) config('spotengine.payload_limits.image_segments', 64))) {
+            throw new \UnexpectedValueException('The image segment count exceeds payload limit.');
+        }
+
         return array_values(array_filter(
             $segments,
             static fn (mixed $segment): bool => \is_string($segment) && $segment !== '' && $segment !== '0',
@@ -146,12 +146,11 @@ class SpotImageService
      */
     private function fetchBodies(array $segments, SingleNntpDriver $driver): array
     {
-        $articleBodies = [];
-
-        foreach ($segments as $segment) {
-            $articleBodies[] = $driver->body($segment);
-        }
-
+        $articleBodies = (static function () use ($segments, $driver): \Generator {
+            foreach ($segments as $segment) {
+                yield $driver->body($segment);
+            }
+        })();
         $imageData = $this->decoder->decode($articleBodies);
         $contentType = $this->validateImage($imageData);
         $this->writeCache($this->cachePath($segments), $imageData);
@@ -175,7 +174,8 @@ class SpotImageService
             return null;
         }
 
-        $imageData = file_get_contents($cachePath);
+        $maxBytes = max(1, (int) config('spotengine.payload_limits.image_decoded_bytes', 25_000_000));
+        $imageData = file_get_contents($cachePath, length: $maxBytes + 1);
 
         if ($imageData === false) {
             return null;
@@ -198,7 +198,7 @@ class SpotImageService
     {
         $length = strlen($imageData);
 
-        if ($length === 0 || $length > self::MAX_IMAGE_BYTES) {
+        if ($length === 0 || $length > max(1, (int) config('spotengine.payload_limits.image_decoded_bytes', 25_000_000))) {
             throw new \UnexpectedValueException('The decoded preview image has an invalid size.');
         }
 
@@ -211,7 +211,7 @@ class SpotImageService
             || ! \in_array($contentType, ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/avif'], true)
             || $width < 1
             || $height < 1
-            || $width * $height > self::MAX_IMAGE_PIXELS) {
+            || $width * $height > max(1, (int) config('spotengine.payload_limits.image_pixels', 40_000_000))) {
             throw new \UnexpectedValueException('The decoded NNTP payload is not a supported preview image.');
         }
 

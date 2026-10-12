@@ -11,6 +11,8 @@ final class ProtocolTranscriptStream implements NntpStreamInterface
 {
     public string $written = '';
 
+    public bool $closed = false;
+
     private int $offset = 0;
 
     public function __construct(
@@ -50,7 +52,10 @@ final class ProtocolTranscriptStream implements NntpStreamInterface
         return $this->offset >= strlen($this->transcript);
     }
 
-    public function close(): void {}
+    public function close(): void
+    {
+        $this->closed = true;
+    }
 }
 
 test('frames status continuations and partial reads', function () {
@@ -112,4 +117,55 @@ test('decompresses framed overview responses', function () {
     expect((new NntpProtocol($stream))->readCompressedTextResponse())->toBe([
         "1\tSubject\tPoster\tDate\t<one@test>",
     ]);
+});
+
+test('rejects overlong unterminated lines and closes the connection', function () {
+    config()->set('spotengine.payload_limits.nntp_line_bytes', 8);
+    $stream = new ProtocolTranscriptStream(str_repeat('x', 100));
+
+    expect(fn () => (new NntpProtocol($stream))->readTextResponse())
+        ->toThrow(NntpException::class, 'payload limit');
+    expect($stream->closed)->toBeTrue();
+});
+
+test('rejects cumulative text and body bytes', function (bool $body) {
+    config()->set('spotengine.payload_limits.nntp_body_bytes', 7);
+    $protocol = new NntpProtocol(new ProtocolTranscriptStream("abcd\r\nefgh\r\n.\r\n"));
+
+    expect(fn () => $body ? $protocol->readBodyResponse() : $protocol->readTextResponse(7))
+        ->toThrow(NntpException::class, 'payload limit');
+})->with([false, true]);
+
+test('accepts a body exactly at the byte limit with dot unstuffing', function () {
+    config()->set('spotengine.payload_limits.nntp_body_bytes', 7);
+    $protocol = new NntpProtocol(new ProtocolTranscriptStream("abc\r\n..d\r\n.\r\n"));
+
+    expect($protocol->readBodyResponse())->toBe("abc\r\n.d");
+});
+
+test('rejects responses exceeding the line count', function () {
+    config()->set('spotengine.payload_limits.nntp_response_lines', 2);
+    $protocol = new NntpProtocol(new ProtocolTranscriptStream("\r\n\r\n\r\n.\r\n"));
+
+    expect(fn () => $protocol->readTextResponse())->toThrow(NntpException::class, 'payload limit');
+});
+
+test('rejects compressed overview output exceeding byte or line limits', function (string $limit, int $maximum) {
+    config()->set('spotengine.payload_limits.' . $limit, $maximum);
+    $wire = gzcompress("first\r\nsecond\r\n" . str_repeat('x', 4096) . "\r\n") . ".\r\n";
+
+    expect(fn () => NntpProtocol::decodeCompressedTextResponse($wire))->toThrow(NntpException::class);
+})->with([
+    'expanded output' => ['nntp_response_bytes', 128],
+    'too many rows' => ['nntp_response_lines', 2],
+    'too long row' => ['nntp_line_bytes', 5],
+]);
+
+test('rejects compressed wire bytes before further accumulation', function () {
+    config()->set('spotengine.payload_limits.nntp_response_bytes', 16);
+    $stream = new ProtocolTranscriptStream(str_repeat('x', 100));
+
+    expect(fn () => (new NntpProtocol($stream))->readCompressedTextResponse())
+        ->toThrow(NntpException::class, 'payload limit');
+    expect($stream->closed)->toBeTrue();
 });

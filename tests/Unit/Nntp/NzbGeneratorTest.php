@@ -116,3 +116,80 @@ test('fetchNzb tolerates an incomplete trailing yEnc escape', function () {
 
     expect($nzb)->toBe($xml);
 });
+
+test('rejects excessive NZB segment counts before opening the group', function () {
+    config()->set('spotengine.payload_limits.nzb_segments', 1);
+    $nntp = Mockery::mock(SingleNntpDriver::class);
+    $nntp->shouldNotReceive('group');
+    $nntp->shouldNotReceive('body');
+
+    expect(fn () => (new NzbGenerator($nntp))->fetchNzb(['first@test', 'second@test'], 'free.pt'))
+        ->toThrow(RuntimeException::class, 'segment count');
+});
+
+test('stops fetching NZB segments when cumulative input exceeds the limit', function (string $limit, int $maximum, string $body) {
+    config()->set('spotengine.payload_limits.' . $limit, $maximum);
+    $nntp = Mockery::mock(SingleNntpDriver::class);
+    $nntp->shouldReceive('group')->once()->with('free.pt');
+    $nntp->shouldReceive('body')->once()->with('first@test')->andReturn($body);
+    $nntp->shouldReceive('body')->once()->with('second@test')->andReturn($body);
+    $nntp->shouldNotReceive('body')->with('third@test');
+
+    expect(fn () => (new NzbGenerator($nntp))->fetchNzb(['first@test', 'second@test', 'third@test'], 'free.pt'))
+        ->toThrow(RuntimeException::class, 'input exceeds');
+})->with([
+    'bytes' => ['nzb_input_bytes', 7, 'abcd'],
+    'lines' => ['nntp_response_lines', 3, "a\r\nb"],
+]);
+
+test('rejects compressed NZBs larger than the input limit', function () {
+    config()->set('spotengine.payload_limits.nzb_compressed_bytes', 1);
+    $nntp = Mockery::mock(SingleNntpDriver::class);
+    $nntp->shouldReceive('group')->once();
+    $nntp->shouldReceive('body')->once()->andReturn(specialZipArticle('<nzb><file/></nzb>'));
+
+    expect(fn () => (new NzbGenerator($nntp))->fetchNzb(['test@test'], 'free.pt'))
+        ->toThrow(RuntimeException::class, 'Compressed NZB');
+});
+
+test('bounds every supported decompression format', function (string $format) {
+    config()->set('spotengine.payload_limits.nzb_output_bytes', 128);
+    $xml = '<nzb>' . str_repeat('x', 4096) . '</nzb>';
+    $compressed = match ($format) {
+        'gzip' => gzencode($xml),
+        'zlib' => gzcompress($xml),
+        'offset' => 'custom' . gzdeflate($xml),
+        'base64' => base64_encode(gzdeflate($xml)),
+        default => gzdeflate($xml),
+    };
+    $body = str_replace(['=', "\n", "\r", "\0"], ['=D', '=C', '=B', '=A'], $compressed);
+    $nntp = Mockery::mock(SingleNntpDriver::class);
+    $nntp->shouldReceive('group')->once();
+    $nntp->shouldReceive('body')->once()->andReturn($body);
+
+    expect(fn () => (new NzbGenerator($nntp))->fetchNzb(['test@test'], 'free.pt'))
+        ->toThrow(RuntimeException::class);
+})->with(['deflate', 'gzip', 'zlib', 'offset', 'base64']);
+
+test('accepts XML exactly at the output limit and rejects larger XML', function (int $limit, bool $valid) {
+    config()->set('spotengine.payload_limits.nzb_output_bytes', $limit);
+    $nntp = Mockery::mock(SingleNntpDriver::class);
+    $nntp->shouldReceive('group')->once();
+    $nntp->shouldReceive('body')->once()->andReturn('<nzb></nzb>');
+    $fetch = fn () => (new NzbGenerator($nntp))->fetchNzb(['test@test'], 'free.pt');
+
+    if ($valid) {
+        expect($fetch())->toBe('<nzb></nzb>');
+    } else {
+        expect($fetch)->toThrow(RuntimeException::class, 'Decoded NZB');
+    }
+})->with([[11, true], [10, false]]);
+
+test('rejects bzip2 payloads instead of allocating unbounded output', function () {
+    $nntp = Mockery::mock(SingleNntpDriver::class);
+    $nntp->shouldReceive('group')->once();
+    $nntp->shouldReceive('body')->once()->andReturn('BZh9untrusted');
+
+    expect(fn () => (new NzbGenerator($nntp))->fetchNzb(['test@test'], 'free.pt'))
+        ->toThrow(RuntimeException::class, 'bounded output');
+});

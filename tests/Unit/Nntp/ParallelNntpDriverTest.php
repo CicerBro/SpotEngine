@@ -88,6 +88,30 @@ test('drains overview lines buffered with the status response', function () {
     }
 });
 
+test('continues after a missing HEAD article and stops when the queue is exhausted', function () {
+    [$driver, $servers] = connectedParallelDriver([
+        "200 ready\r\n430 no such article\r\n",
+    ]);
+    $results = [];
+
+    try {
+        $driver->headBatch(['missing@test', 'available@test'], showProgress: false, onArticle: function (int|string $id, HeadBatchResult $result) use (&$results, $servers): void {
+            $results[$id] = $result;
+
+            if ($id === 'missing@test') {
+                fwrite($servers[0], "221 2 <available@test> headers follow\r\nX-XML: available\r\n.\r\n");
+            }
+        });
+    } finally {
+        closeParallelTestDriver($driver, $servers);
+    }
+
+    expect($results)->toHaveCount(2)
+        ->and($results['missing@test']->outcome)->toBe(HeadBatchOutcome::Missing)
+        ->and($results['available@test']->outcome)->toBe(HeadBatchOutcome::Success)
+        ->and($results['available@test']->headers)->toBe(['x-xml' => 'available']);
+});
+
 test('retries a partially received HEAD once after its absolute deadline', function () {
     [$driver, $servers] = connectedParallelDriver([
         "200 ready\r\n221 1 <retried@test> headers follow\r\nX-XML: partial",
@@ -220,4 +244,54 @@ test('drops stale group backends and keeps their common range', function () {
 
     expect($summary['last'])->toBe(950)
         ->and($connectionCount)->toBe(2);
+});
+
+test('rejects oversized parallel HEAD responses without emitting article callbacks', function (string $limit, int $maximum, string $headers) {
+    config()->set('spotengine.payload_limits.' . $limit, $maximum);
+    [$driver, $servers] = connectedParallelDriver(["200 ready\r\n221 headers\r\n" . $headers]);
+    $callbacks = [];
+
+    try {
+        expect(fn () => $driver->headBatch([1], showProgress: false, onArticle: function (int|string $id) use (&$callbacks): void {
+            $callbacks[] = $id;
+        }))->toThrow(NntpException::class, 'payload limit');
+        expect($callbacks)->toBe([]);
+        expect($driver->getConnectionCount())->toBe(0);
+    } finally {
+        closeParallelTestDriver($driver, $servers);
+    }
+})->with([
+    'bytes' => ['nntp_header_bytes', 30, "X-XML: larger than allowed\r\n.\r\n"],
+    'line' => ['nntp_line_bytes', 20, str_repeat('x', 21)],
+    'line count' => ['nntp_response_lines', 2, "X-XML: a\r\nX-XML: b\r\n.\r\n"],
+]);
+
+test('rejects oversized parallel overview responses and discards the connection', function (string $limit, int $maximum, string $overview) {
+    config()->set('spotengine.payload_limits.' . $limit, $maximum);
+    [$driver, $servers] = connectedParallelDriver(["200 ready\r\n224 follows\r\n" . $overview]);
+
+    try {
+        expect(fn () => $driver->xover(1, 1))->toThrow(NntpException::class, 'payload limit');
+        expect($driver->getConnectionCount())->toBe(0);
+    } finally {
+        closeParallelTestDriver($driver, $servers);
+    }
+})->with([
+    'bytes' => ['nntp_response_bytes', 30, "1\tSubject\tPoster\tDate\t<test@test>\r\n.\r\n"],
+    'line' => ['nntp_line_bytes', 20, str_repeat('x', 21)],
+    'line count' => ['nntp_response_lines', 2, "\r\n\r\n.\r\n"],
+]);
+
+test('reports failed reconnects after oversized greetings close their sockets', function () {
+    [$driver, $servers] = connectedParallelDriver([
+        "200 ready\r\n",
+        str_repeat('x', 4097),
+    ], headDeadlineSeconds: 0.01);
+
+    try {
+        expect(fn () => $driver->headBatch([1], showProgress: false))
+            ->toThrow(NntpException::class, 'Failed to reconnect');
+    } finally {
+        closeParallelTestDriver($driver, $servers);
+    }
 });

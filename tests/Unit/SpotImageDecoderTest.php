@@ -84,3 +84,48 @@ test('incomplete trailing yEnc escapes are rejected for images', function () {
 
     (new SpotImageDecoder)->decode([$body]);
 })->throws(UnexpectedValueException::class, 'incomplete escape');
+
+test('bounds decoded images in every supported encoding', function (string $format) {
+    config()->set('spotengine.payload_limits.image_decoded_bytes', 5);
+    $data = 'sixsix';
+    $body = match ($format) {
+        'yenc' => encodeSpotImageYEnc($data, 1),
+        'base64' => "Content-Transfer-Encoding: base64\r\n\r\n" . base64_encode($data),
+        'uuencode' => "begin 644 preview.jpg\r\n" . rtrim(convert_uuencode($data)) . "\r\nend",
+        default => $data,
+    };
+
+    expect(fn () => (new SpotImageDecoder)->decode([$body]))
+        ->toThrow(UnexpectedValueException::class, 'decoded image exceeds');
+})->with(['yenc', 'base64', 'uuencode', 'spotnet']);
+
+test('accepts decoded images exactly at the cumulative limit', function () {
+    config()->set('spotengine.payload_limits.image_decoded_bytes', 6);
+
+    expect((new SpotImageDecoder)->decode(['first', 'x']))->toBe('firstx');
+});
+
+test('stops requesting image bodies once a cumulative payload limit is reached', function (string $limit, int $maximum, array $bodies) {
+    config()->set('spotengine.payload_limits.' . $limit, $maximum);
+    $yielded = 0;
+    $articles = (function () use (&$yielded, $bodies): Generator {
+        foreach ($bodies as $body) {
+            $yielded++;
+            yield $body;
+        }
+    })();
+
+    expect(fn () => (new SpotImageDecoder)->decode($articles))->toThrow(UnexpectedValueException::class, 'payload limit');
+    expect($yielded)->toBe(2);
+})->with([
+    'input bytes' => ['image_input_bytes', 7, ['first', 'next', 'never']],
+    'decoded bytes' => ['image_decoded_bytes', 7, ['first', 'next', 'never']],
+    'line count' => ['nntp_response_lines', 3, ["a\nb", "c\nd", 'never']],
+    'segments' => ['image_segments', 1, ['first', 'next', 'never']],
+]);
+
+test('bounds images with escaped Spotnet bytes after reversing escapes', function () {
+    config()->set('spotengine.payload_limits.image_decoded_bytes', 3);
+
+    expect((new SpotImageDecoder)->decode(['=A=B=C']))->toBe("\0\r\n");
+});
