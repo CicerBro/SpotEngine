@@ -198,6 +198,9 @@ class NzbDownloadService
         }
 
         $gzipped = $this->isGzipped($cached) ? $cached : $this->encodeNzb($cached);
+        if (! $this->validateCachedGzip($legacyPath, $gzipped)) {
+            return null;
+        }
         $this->writeToCache($cachePath, $gzipped);
         @unlink($legacyPath);
 
@@ -213,7 +216,7 @@ class NzbDownloadService
         }
 
         if ($this->isGzipped($cached)) {
-            return $cached;
+            return $this->validateCachedGzip($cachePath, $cached) ? $cached : null;
         }
 
         $gzipped = $this->encodeNzb($cached);
@@ -224,17 +227,50 @@ class NzbDownloadService
 
     private function readCacheFile(string $path): ?string
     {
-        $cached = file_get_contents($path);
+        $stream = @fopen($path, 'rb');
+        if ($stream === false) {
+            return null;
+        }
 
-        return $cached === false ? null : $cached;
+        try {
+            $prefix = fread($stream, 2);
+            if ($prefix === false) {
+                return null;
+            }
+            $maxBytes = $this->isGzipped($prefix)
+                ? max(1, (int) config('spotengine.payload_limits.nzb_compressed_bytes', 16_777_216))
+                : max(1, (int) config('spotengine.payload_limits.nzb_output_bytes', 67_108_864));
+            $remainder = stream_get_contents($stream, max(1, $maxBytes - strlen($prefix) + 1));
+            if ($remainder === false) {
+                return null;
+            }
+            $cached = $prefix . $remainder;
+        } finally {
+            fclose($stream);
+        }
+
+        if (strlen($cached) > $maxBytes) {
+            @unlink($path);
+
+            return null;
+        }
+
+        return $cached;
     }
 
     private function encodeNzb(string $nzb): string
     {
+        if (strlen($nzb) > max(1, (int) config('spotengine.payload_limits.nzb_output_bytes', 67_108_864))) {
+            throw new \RuntimeException('NZB cache output exceeds payload limit.');
+        }
         $gzipped = gzencode($nzb, self::GZIP_LEVEL);
 
         if ($gzipped === false) {
             throw new \RuntimeException('Unable to gzip NZB cache payload.');
+        }
+
+        if (strlen($gzipped) > max(1, (int) config('spotengine.payload_limits.nzb_compressed_bytes', 16_777_216))) {
+            throw new \RuntimeException('Compressed NZB cache exceeds payload limit.');
         }
 
         return $gzipped;
@@ -242,13 +278,29 @@ class NzbDownloadService
 
     private function decodeGzippedNzb(string $gzippedNzb): string
     {
-        $nzb = gzdecode($gzippedNzb);
+        if (strlen($gzippedNzb) > max(1, (int) config('spotengine.payload_limits.nzb_compressed_bytes', 16_777_216))) {
+            throw new \RuntimeException('Compressed NZB cache exceeds payload limit.');
+        }
+        $nzb = @gzdecode($gzippedNzb, max(1, (int) config('spotengine.payload_limits.nzb_output_bytes', 67_108_864)));
 
         if ($nzb === false) {
             throw new \RuntimeException('Unable to decode gzipped NZB cache payload.');
         }
 
         return $nzb;
+    }
+
+    private function validateCachedGzip(string $path, string $data): bool
+    {
+        try {
+            $this->decodeGzippedNzb($data);
+
+            return true;
+        } catch (\RuntimeException) {
+            @unlink($path);
+
+            return false;
+        }
     }
 
     private function isGzipped(string $data): bool
@@ -260,10 +312,43 @@ class NzbDownloadService
     {
         $dir = dirname($cachePath);
 
-        if (! is_dir($dir)) {
-            mkdir($dir, 0755, true);
+        if (! is_dir($dir) && ! @mkdir($dir, 0755, true) && ! is_dir($dir)) {
+            throw new \RuntimeException('Unable to create NZB cache directory.');
         }
 
-        file_put_contents($cachePath, $data, LOCK_EX);
+        $temporaryPath = $cachePath . '.' . bin2hex(random_bytes(6)) . '.tmp';
+        $stream = @fopen($temporaryPath, 'xb');
+
+        if ($stream === false) {
+            throw new \RuntimeException('Unable to open temporary NZB cache file.');
+        }
+
+        try {
+            $offset = 0;
+            $length = strlen($data);
+            while ($offset < $length) {
+                $written = @fwrite($stream, substr($data, $offset, 65_536));
+                if ($written === false || $written === 0) {
+                    throw new \RuntimeException('Unable to write complete NZB cache payload.');
+                }
+                $offset += $written;
+            }
+            if (! @fflush($stream)) {
+                throw new \RuntimeException('Unable to flush NZB cache payload.');
+            }
+            if (! @fclose($stream)) {
+                throw new \RuntimeException('Unable to close NZB cache payload.');
+            }
+            if (! @rename($temporaryPath, $cachePath)) {
+                throw new \RuntimeException('Unable to publish NZB cache payload.');
+            }
+        } finally {
+            if (is_resource($stream)) {
+                fclose($stream);
+            }
+            if (is_file($temporaryPath)) {
+                @unlink($temporaryPath);
+            }
+        }
     }
 }

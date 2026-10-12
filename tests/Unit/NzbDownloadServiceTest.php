@@ -182,3 +182,94 @@ test('precache fetches return plain NZB content while storing gzip', function ()
         ->and($cached)->toStartWith("\x1f\x8b")
         ->and(gzdecode($cached))->toBe($nzb);
 });
+
+test('cache normalization replaces the file atomically for already open readers', function () {
+    $spot = new Spot(['title' => 'Atomic cache', 'nzb_segments' => ['segment@test']]);
+    $spot->setAttribute('id', 900);
+    $nzb = '<nzb><file subject="atomic"/></nzb>';
+    $nntp = Mockery::mock(NntpService::class);
+    $nntp->shouldNotReceive('makeDriver');
+    $enricher = Mockery::mock(SpotEnricher::class);
+    $enricher->shouldReceive('enrich')->once()->with($spot);
+    $service = new NzbDownloadService($nntp, $enricher);
+    $path = $service->cachePath($spot);
+    File::ensureDirectoryExists(dirname($path));
+    File::put($path, $nzb);
+    $reader = fopen($path, 'rb');
+
+    try {
+        $cached = $service->fetchGzippedNzb($spot);
+
+        expect(stream_get_contents($reader))->toBe($nzb);
+        expect(gzdecode(File::get($path)))->toBe($nzb);
+        expect($cached)->toBe(File::get($path));
+        expect(glob($path . '.*.tmp'))->toBe([]);
+    } finally {
+        fclose($reader);
+    }
+});
+
+test('failed NZB cache publication cleans temporary files and preserves the legacy cache', function () {
+    $spot = new Spot(['title' => 'Publication failure', 'nzb_segments' => ['segment@test']]);
+    $spot->setAttribute('id', 901);
+    $nntp = Mockery::mock(NntpService::class);
+    $nntp->shouldNotReceive('makeDriver');
+    $enricher = Mockery::mock(SpotEnricher::class);
+    $enricher->shouldReceive('enrich')->once()->with($spot);
+    $service = new NzbDownloadService($nntp, $enricher);
+    $path = $service->cachePath($spot);
+    $legacyPath = nestedCachePath($this->cacheDirectory, md5('nzb.' . $spot->id), 'nzb');
+    File::ensureDirectoryExists($path);
+    File::put($path . '/existing', 'preserved');
+    File::put($legacyPath, '<nzb></nzb>');
+
+    expect(fn () => $service->fetchGzippedNzb($spot))->toThrow(RuntimeException::class, 'publish');
+    expect(glob($path . '.*.tmp'))->toBe([]);
+    expect(File::get($path . '/existing'))->toBe('preserved');
+    expect(File::get($legacyPath))->toBe('<nzb></nzb>');
+});
+
+test('oversized and corrupt NZB caches are discarded and refetched with bounded decoding', function (string $payload) {
+    config()->set('spotengine.payload_limits.nzb_output_bytes', 64);
+    config()->set('spotengine.payload_limits.nzb_compressed_bytes', 48);
+    $spot = new Spot(['title' => 'Invalid cache', 'nzb_segments' => ['segment@test']]);
+    $spot->setAttribute('id', 902);
+    $driver = Mockery::mock(SingleNntpDriver::class);
+    $driver->shouldReceive('group')->once()->with('free.pt');
+    $driver->shouldReceive('body')->once()->with('segment@test')->andReturn('<nzb></nzb>');
+    $nntp = Mockery::mock(NntpService::class);
+    $nntp->shouldReceive('getConfig')->once()->andReturn(['groups' => ['spots' => 'free.pt']]);
+    $enricher = Mockery::mock(SpotEnricher::class);
+    $service = new NzbDownloadService($nntp, $enricher);
+    $path = $service->cachePath($spot);
+    File::ensureDirectoryExists(dirname($path));
+    File::put($path, $payload);
+
+    expect($service->fetchNzbWithDriver($spot, $driver))->toBe('<nzb></nzb>');
+    expect(gzdecode(File::get($path)))->toBe('<nzb></nzb>');
+})->with([
+    'plain bytes' => str_repeat('x', 65),
+    'expanded gzip output' => gzencode(str_repeat('x', 4096)),
+    'compressed bytes' => "\x1f\x8b" . str_repeat('x', 47),
+    'corrupt gzip' => "\x1f\x8bbroken",
+]);
+
+test('NZB cache directory creation failures are reported without publishing a file', function () {
+    $spot = new Spot(['title' => 'Directory failure', 'nzb_segments' => ['segment@test']]);
+    $spot->setAttribute('id', 903);
+    File::ensureDirectoryExists(dirname($this->cacheDirectory));
+    File::put($this->cacheDirectory, 'existing file');
+    $driver = Mockery::mock(SingleNntpDriver::class);
+    $driver->shouldReceive('group')->once()->with('free.pt');
+    $driver->shouldReceive('body')->once()->with('segment@test')->andReturn('<nzb></nzb>');
+    $nntp = Mockery::mock(NntpService::class);
+    $nntp->shouldReceive('getConfig')->once()->andReturn(['groups' => ['spots' => 'free.pt']]);
+    $service = new NzbDownloadService($nntp, Mockery::mock(SpotEnricher::class));
+
+    try {
+        expect(fn () => $service->fetchNzbWithDriver($spot, $driver))->toThrow(RuntimeException::class, 'directory');
+        expect(File::get($this->cacheDirectory))->toBe('existing file');
+    } finally {
+        File::delete($this->cacheDirectory);
+    }
+});
