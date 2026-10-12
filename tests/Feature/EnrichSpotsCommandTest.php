@@ -2,11 +2,14 @@
 
 declare(strict_types=1);
 
+use App\Enums\SpotBanType;
 use App\Models\Spot;
+use App\Models\SpotBan;
 use App\Services\Nntp\Contracts\NntpDriverInterface;
 use App\Services\Nntp\HeadBatchResult;
 use App\Services\Nntp\NntpException;
 use App\Services\Nntp\NntpService;
+use App\Services\Nntp\SpotterId;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 
@@ -273,7 +276,7 @@ test('enrich deletes spots with no NZB segments', function () {
 test('enrich streams large batches through a single headBatch call', function () {
     $spots = Spot::factory()->count(3)->create([
         'xml_signature' => null,
-    ])->sortBy('id')->values();
+    ])->sortByDesc('id')->values();
 
     $this->mockDriver->shouldReceive('headBatch')
         ->once()
@@ -311,7 +314,7 @@ test('enrich aborts and preserves spots when HEAD reports a systemic failure', f
 });
 
 test('enrich leaves articles without a completed callback intact after an interrupted stream', function () {
-    $spots = Spot::factory()->count(2)->create(['xml_signature' => null])->sortBy('id')->values();
+    $spots = Spot::factory()->count(2)->create(['xml_signature' => null])->sortByDesc('id')->values();
 
     $this->mockDriver->shouldReceive('headBatch')
         ->once()
@@ -336,12 +339,12 @@ test('enrich maps out-of-order callback IDs to their matching spots', function (
     $this->mockDriver->shouldReceive('headBatch')
         ->once()
         ->andReturnUsing(function (array $messageIds, bool $showProgress, ?callable $onArticle) use ($xml): array {
-            $onArticle($messageIds[1], HeadBatchResult::success([
+            $onArticle($messageIds[0], HeadBatchResult::success([
                 'x-xml' => $xml,
                 'x-xml-signature' => 'sig',
                 'x-user-key' => '',
             ]));
-            $onArticle($messageIds[0], HeadBatchResult::missing());
+            $onArticle($messageIds[1], HeadBatchResult::missing());
 
             return [];
         });
@@ -352,6 +355,30 @@ test('enrich maps out-of-order callback IDs to their matching spots', function (
     expect(Spot::find($missingSpot->id))->toBeNull()
         ->and($enrichedSpot->fresh()->description)->toBeNull()
         ->and($enrichedSpot->fresh()->xml_signature)->toBe('sig');
+});
+
+test('enrich preserves timed out articles for a subsequent run', function () {
+    $spot = Spot::factory()->create(['xml_signature' => null]);
+    simulateStreamingHeadBatch($this->mockDriver, [$spot->message_id => HeadBatchResult::timedOutAfterRetry()]);
+
+    $this->artisan('spot:enrich')->assertSuccessful();
+
+    expect($spot->fresh()->xml_signature)->toBeNull();
+});
+
+test('enrich removes spots whose parsed poster key is blacklisted', function () {
+    $key = '<RSAKeyValue><Modulus>AQAB</Modulus><Exponent>AQAB</Exponent></RSAKeyValue>';
+    $keyId = SpotterId::fromModulus('AQAB');
+    SpotBan::query()->create(['type' => SpotBanType::PosterKeyId, 'value' => $keyId]);
+    $spot = Spot::factory()->create(['xml_signature' => null]);
+    simulateStreamingHeadBatch($this->mockDriver, [$spot->message_id => [
+        'x-xml' => '<Spotnet><Posting><Title>Banned</Title><Category>01</Category><NZB><Segment>nzb@news</Segment></NZB></Posting></Spotnet>',
+        'x-user-key' => $key,
+    ]]);
+
+    $this->artisan('spot:enrich')->assertSuccessful();
+
+    $this->assertModelMissing($spot);
 });
 
 test('enrich flushes deletes at 500 completions and after the residual callbacks', function () {

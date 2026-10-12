@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Spot;
+use App\Services\Nntp\NntpException;
 use App\Services\Nntp\NntpService;
+use App\Services\Nntp\ResponseCode;
 use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SingleNntpDriver;
 use App\Services\Nntp\SpotParser;
@@ -33,6 +35,7 @@ class SpotEnricher
         private readonly SpotParser $parser,
         private readonly SigningService $signer,
         private readonly SpotMutationService $spotMutations,
+        private readonly SpotBanService $spotBans,
     ) {}
 
     /**
@@ -43,6 +46,8 @@ class SpotEnricher
      */
     public function enrich(Spot $spot): bool
     {
+        abort_if($this->spotBans->isBanned($spot->poster, $spot->tag, $spot->poster_key_id), 404);
+
         if ($this->isEnriched($spot)) {
             return false;
         }
@@ -50,8 +55,6 @@ class SpotEnricher
         $headers = $this->fetchHead($spot);
 
         if ($headers === null) {
-            $this->spotMutations->update($spot, ['xml_signature' => '']);
-
             return false;
         }
 
@@ -62,6 +65,8 @@ class SpotEnricher
 
             return false;
         }
+
+        abort_if($this->spotBans->isBanned($spot->poster, $spot->tag, $parsed['poster_key_id'] ?? null), 404);
 
         $xmlContent = $headers['x-xml'] ?? '';
         $xmlSignature = $headers['x-xml-signature'] ?? '';
@@ -106,7 +111,15 @@ class SpotEnricher
         for ($attempt = 0; $attempt <= self::MAX_RETRIES; $attempt++) {
             try {
                 return $this->driver()->head($spot->message_id);
-            } catch (\Throwable) {
+            } catch (NntpException $exception) {
+                if ($exception->operation === 'HEAD' && $exception->responseCode === ResponseCode::NoSuchArticleId->value) {
+                    $this->spotMutations->update($spot, ['xml_signature' => '']);
+
+                    return null;
+                }
+
+                $this->disconnectDriver();
+            } catch (\RuntimeException) {
                 $this->disconnectDriver();
             }
         }
@@ -116,17 +129,13 @@ class SpotEnricher
 
     private function driver(): SingleNntpDriver
     {
-        if ($this->driver instanceof SingleNntpDriver && $this->driver->isConnected()) {
+        if ($this->driver !== null && $this->driver->isConnected()) {
             return $this->driver;
         }
 
         $this->disconnectDriver();
 
         $driver = $this->nntpService->makeDriver(driver: 'single');
-
-        if (! $driver instanceof SingleNntpDriver) {
-            throw new \RuntimeException('Expected SingleNntpDriver for lazy enrichment.');
-        }
 
         $driver->connect(showProgress: false);
 

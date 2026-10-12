@@ -62,9 +62,7 @@ class SpotBan extends Model
     protected static function booted(): void
     {
         static::saving(static function (SpotBan $ban): void {
-            if ($ban->type instanceof SpotBanType) {
-                $ban->value = self::normalizeValue($ban->type, $ban->value);
-            }
+            $ban->value = self::normalizeValue($ban->type, $ban->value);
 
             $ban->name = self::normalizeName($ban->name);
         });

@@ -11,13 +11,32 @@ use Illuminate\Support\Facades\Cache;
 
 class SpotBanService
 {
+    /** @var array<string, array<string, true>>|null */
+    private ?array $batchLists = null;
+
     public static function clearCache(): void
     {
         foreach (SpotListKind::cases() as $kind) {
             foreach (SpotBanType::cases() as $type) {
-                Cache::forget(self::cacheKey($kind, $type));
+                Cache::memo()->forget(self::cacheKey($kind, $type));
             }
         }
+    }
+
+    public function beginBatch(): void
+    {
+        $this->batchLists = [];
+
+        foreach (SpotListKind::cases() as $kind) {
+            foreach (SpotBanType::cases() as $type) {
+                $this->batchLists[self::cacheKey($kind, $type)] = $this->loadValues($kind, $type, false);
+            }
+        }
+    }
+
+    public function endBatch(): void
+    {
+        $this->batchLists = null;
     }
 
     public function isBanned(?string $poster, ?string $tag, ?string $posterKeyId = null): bool
@@ -43,7 +62,7 @@ class SpotBanService
 
     private static function cacheKey(SpotListKind $kind, SpotBanType $type): string
     {
-        return 'spot_bans.' . $kind->value . '.' . $type->value;
+        return 'spot_bans.sets.' . $kind->value . '.' . $type->value;
     }
 
     private function matches(SpotListKind $kind, SpotBanType $type, string $value): bool
@@ -53,23 +72,29 @@ class SpotBanService
             SpotBanType::PosterKeyId => trim($value),
         };
 
-        return in_array($normalized, $this->listValues($kind, $type), true);
+        return isset($this->listValues($kind, $type)[$normalized]);
     }
 
     /**
-     * @return list<string>
+     * @return array<string, true>
      */
     private function listValues(SpotListKind $kind, SpotBanType $type): array
     {
-        /** @var list<string> */
-        return Cache::remember(
+        return $this->batchLists[self::cacheKey($kind, $type)] ?? $this->loadValues($kind, $type, true);
+    }
+
+    /** @return array<string, true> */
+    private function loadValues(SpotListKind $kind, SpotBanType $type, bool $memoize): array
+    {
+        /** @var array<string, true> */
+        return ($memoize ? Cache::memo() : Cache::store())->remember(
             self::cacheKey($kind, $type),
             now()->addDay(),
-            fn () => SpotBan::query()
+            fn () => array_fill_keys(SpotBan::query()
                 ->where('kind', $kind)
                 ->where('type', $type)
                 ->pluck('value')
-                ->all(),
+                ->all(), true),
         );
     }
 }

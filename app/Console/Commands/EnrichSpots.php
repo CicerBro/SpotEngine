@@ -6,11 +6,13 @@ namespace App\Console\Commands;
 
 use App\Models\Spot;
 use App\Services\Nntp\Contracts\NntpDriverInterface;
+use App\Services\Nntp\HeadBatchOutcome;
 use App\Services\Nntp\HeadBatchResult;
 use App\Services\Nntp\NntpException;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\SigningService;
 use App\Services\Nntp\SpotParser;
+use App\Services\SpotBanService;
 use App\Services\SpotMutationService;
 use Illuminate\Console\Attributes\Description;
 use Illuminate\Console\Attributes\Signature;
@@ -50,6 +52,7 @@ class EnrichSpots extends Command
         SpotParser $parser,
         SigningService $signer,
         SpotMutationService $spotMutations,
+        SpotBanService $spotBans,
     ): int {
         $config = $nntpService->getConfig();
         $connections = $this->option('connections') !== null
@@ -108,7 +111,7 @@ class EnrichSpots extends Command
 
                     $query = Spot::query()
                         ->whereNull('xml_signature')
-                        ->select(['id', 'message_id', 'title', 'category_code', 'spot_posted_at']);
+                        ->select(['id', 'message_id', 'title', 'poster', 'tag', 'category_code', 'spot_posted_at']);
 
                     if ($cursorId !== null) {
                         $query->where('id', '<', $cursorId);
@@ -136,6 +139,8 @@ class EnrichSpots extends Command
                     break;
                 }
 
+                $spotBans->beginBatch();
+
                 /** @var array<string, Spot> $spotsByMessageId */
                 $spotsByMessageId = $streamBatch->keyBy('message_id')->all();
 
@@ -153,18 +158,7 @@ class EnrichSpots extends Command
                     $progressBar,
                     &$attempted,
                 ): void {
-                    if ($upsertRows !== []) {
-                        $spotMutations->upsert($upsertRows, ['id'], [
-                            'description', 'image_segments', 'nzb_segments', 'website',
-                            'xml_signature', 'poster_key_id', 'is_verified',
-                        ]);
-                        $upsertRows = [];
-                    }
-
-                    if ($deleteIds !== []) {
-                        $spotMutations->delete($deleteIds);
-                        $deleteIds = [];
-                    }
+                    $this->flushMutations($spotMutations, $upsertRows, $deleteIds);
 
                     $completionsSinceFlush = 0;
                     $progressBar->setProgress($attempted);
@@ -181,6 +175,7 @@ class EnrichSpots extends Command
                     &$deleted,
                     $parser,
                     $signer,
+                    $spotBans,
                     $flush,
                 ): void {
                     $spot = $spotsByMessageId[(string) $messageId] ?? null;
@@ -191,6 +186,16 @@ class EnrichSpots extends Command
 
                     unset($spotsByMessageId[(string) $messageId]);
                     $attempted++;
+
+                    if ($result->outcome === HeadBatchOutcome::TimedOutAfterRetry) {
+                        $completionsSinceFlush++;
+
+                        if ($completionsSinceFlush >= self::FLUSH_SIZE) {
+                            $flush();
+                        }
+
+                        return;
+                    }
 
                     if ($result->isEligibleForDeletion()) {
                         $deleted++;
@@ -221,7 +226,8 @@ class EnrichSpots extends Command
 
                     $parsed = $parser->parseFromHeaders($headers);
 
-                    if ($parsed === null || ($parsed['nzb_segments'] ?? []) === []) {
+                    if ($parsed === null || ($parsed['nzb_segments'] ?? []) === []
+                        || $spotBans->isBanned($spot->poster, $spot->tag, $parsed['poster_key_id'] ?? null)) {
                         $deleted++;
                         $deleteIds[] = $spot->id;
                         Log::debug('spot:enrich not fully indexable — deleting', [
@@ -292,6 +298,8 @@ class EnrichSpots extends Command
                 }
             }
         } finally {
+            $spotBans->endBatch();
+
             try {
                 $nntp->quit();
             } catch (\Throwable) {
@@ -311,6 +319,26 @@ class EnrichSpots extends Command
         $this->info("Done. Enriched: {$enriched}, deleted (unusable or no HEAD): {$deleted}.");
 
         return self::SUCCESS;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $upsertRows
+     * @param  list<int>  $deleteIds
+     */
+    private function flushMutations(SpotMutationService $spotMutations, array &$upsertRows, array &$deleteIds): void
+    {
+        if ($upsertRows !== []) {
+            $spotMutations->upsert($upsertRows, ['id'], [
+                'description', 'image_segments', 'nzb_segments', 'website',
+                'xml_signature', 'poster_key_id', 'is_verified',
+            ]);
+            $upsertRows = [];
+        }
+
+        if ($deleteIds !== []) {
+            $spotMutations->delete($deleteIds);
+            $deleteIds = [];
+        }
     }
 
     private function countUnenriched(): int

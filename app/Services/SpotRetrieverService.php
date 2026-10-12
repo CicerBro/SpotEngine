@@ -217,51 +217,57 @@ class SpotRetrieverService
      */
     protected function fetchBatch(int $batchStart, int $batchEnd): array
     {
-        $overview = $this->nntp->xover($batchStart, $batchEnd);
+        $this->spotBans->beginBatch();
 
-        $spots = [];
-        $moderationCommands = [];
-        $articleNumberToSpotIdx = [];
+        try {
+            $overview = $this->nntp->xover($batchStart, $batchEnd);
 
-        foreach ($overview as $articleNum => $headers) {
-            $result = $this->parser->parseFromOverview($headers);
+            $spots = [];
+            $moderationCommands = [];
+            $articleNumberToSpotIdx = [];
 
-            if ($result === null) {
-                continue;
+            foreach ($overview as $articleNum => $headers) {
+                $result = $this->parser->parseFromOverview($headers);
+
+                if ($result === null) {
+                    continue;
+                }
+
+                if (isset($result['_moderation'])) {
+                    $moderationCommands[] = $result;
+
+                    continue;
+                }
+
+                if ($this->spotBans->isBanned($result['poster'] ?? null, $result['tag'] ?? null)) {
+                    continue;
+                }
+
+                if (! $this->isWithinRetrievalWindow($result)) {
+                    continue;
+                }
+
+                $articleNumberToSpotIdx[$articleNum] = \count($spots);
+                $spots[] = $result;
             }
 
-            if (isset($result['_moderation'])) {
-                $moderationCommands[] = $result;
-
-                continue;
+            if (! $this->initialScan && $articleNumberToSpotIdx !== []) {
+                $spots = $this->enrichWithHead($spots, $articleNumberToSpotIdx);
             }
 
-            if ($this->spotBans->isBanned($result['poster'] ?? null, $result['tag'] ?? null)) {
-                continue;
-            }
+            $spots = array_values(array_filter(
+                $spots,
+                fn (array $spot): bool => ! $this->spotBans->isBanned(
+                    $spot['poster'] ?? null,
+                    $spot['tag'] ?? null,
+                    $spot['poster_key_id'] ?? null,
+                ),
+            ));
 
-            if (! $this->isWithinRetrievalWindow($result)) {
-                continue;
-            }
-
-            $articleNumberToSpotIdx[$articleNum] = \count($spots);
-            $spots[] = $result;
+            return [\count($overview), $spots, $moderationCommands, $batchEnd];
+        } finally {
+            $this->spotBans->endBatch();
         }
-
-        if (! $this->initialScan && $articleNumberToSpotIdx !== []) {
-            $spots = $this->enrichWithHead($spots, $articleNumberToSpotIdx);
-        }
-
-        $spots = array_values(array_filter(
-            $spots,
-            fn (array $spot): bool => ! $this->spotBans->isBanned(
-                $spot['poster'] ?? null,
-                $spot['tag'] ?? null,
-                $spot['poster_key_id'] ?? null,
-            ),
-        ));
-
-        return [\count($overview), $spots, $moderationCommands, $batchEnd];
     }
 
     /**
