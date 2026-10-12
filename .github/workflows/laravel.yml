@@ -64,6 +64,9 @@ jobs:
       - name: Install PHP dependencies
         run: composer install --prefer-dist --no-interaction --no-progress --no-scripts
 
+      - name: Audit PHP dependencies
+        run: composer audit --locked --no-interaction
+
       - name: Build frontend assets
         run: |
           bun install --frozen-lockfile
