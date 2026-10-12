@@ -49,7 +49,7 @@ test('manticore query engine owns text filters sorting and pagination', function
                 'must' => [
                     ['match' => ['title,description' => 'Ubuntu']],
                     ['equals' => ['category' => 1]],
-                    ['in' => ['subcategories' => [(new ManticoreDocumentMapper)->subcategory('01a00')]]],
+                    ['in' => ['any(subcategories)' => [(new ManticoreDocumentMapper)->subcategory('01a00')]]],
                 ],
             ],
         ])->and($payload['sort'])->toBe([
@@ -187,9 +187,9 @@ test('manticore supports newznab variants identifiers subcategories and arbitrar
                             ],
                         ],
                     ],
-                    ['in' => ['id' => [$result->id]]],
+                    ['bool' => ['should' => [['in' => ['any(tvmaze_ids)' => [12345]]]], 'minimum_should_match' => 1]],
                     ['equals' => ['category' => 1]],
-                    ['in' => ['subcategories' => [(new ManticoreDocumentMapper)->subcategory('01z01')]]],
+                    ['in' => ['any(subcategories)' => [(new ManticoreDocumentMapper)->subcategory('01z01')]]],
                 ],
             ],
         ])->and($payload['offset'])->toBe(3)
@@ -246,6 +246,7 @@ test('manticore bulk replacement indexes all searchable attributes', function ()
         return $operation['replace']['id'] === $spot->id
             && $document['title'] === 'Indexed title'
             && $document['description'] === 'Indexed description'
+            && $document['imdb_ids'] === [1234567]
             && $document['category'] === 3
             && $document['subcategories'] !== []
             && $document['posted_at'] === $spot->spot_posted_at->timestamp

@@ -18,12 +18,19 @@ final class ManticoreDocumentMapper
      *     subcategories: list<int>,
      *     posted_at: int,
      *     file_size: int,
-     *     has_nzb: bool
+     *     has_nzb: bool,
+     *     imdb_ids: list<int>,
+     *     tvdb_ids: list<int>,
+     *     tvmaze_ids: list<int>,
+     *     tmdb_movie_ids: list<int>,
+     *     tmdb_tv_ids: list<int>,
+     *     tmdb_ids: list<int>
      * }
      */
     public function map(Spot $spot): array
     {
         return [
+            ...(new ExternalIdentifierNormalizer)->attributes($spot->external_identifiers ?? []),
             'title' => $spot->title,
             'description' => $spot->description ?? '',
             'category' => $this->category($spot->category_code),

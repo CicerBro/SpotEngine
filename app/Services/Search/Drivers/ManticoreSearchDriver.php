@@ -9,6 +9,7 @@ use App\Enums\SearchField;
 use App\Exceptions\ManticoreSearchException;
 use App\Models\Spot;
 use App\Services\Search\Contracts\SearchDriver;
+use App\Services\Search\ExternalIdentifierNormalizer;
 use App\Services\Search\ManticoreDocumentMapper;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Client\ConnectionException;
@@ -48,6 +49,7 @@ class ManticoreSearchDriver implements SearchDriver
             'limit' => $criteria->perPage,
             'options' => [
                 'max_matches' => max($this->maxMatches, $offset + $criteria->perPage),
+                'cutoff' => 0,
             ],
         ];
 
@@ -142,6 +144,7 @@ class ManticoreSearchDriver implements SearchDriver
             'limit' => 0,
             'options' => [
                 'max_matches' => $this->maxMatches,
+                'cutoff' => 0,
             ],
         ]);
         $hits = $response['hits'] ?? null;
@@ -193,12 +196,15 @@ class ManticoreSearchDriver implements SearchDriver
         $this->rawSql(
             "CREATE TABLE IF NOT EXISTS `{$this->index}` (" .
             'title text, description text, category int, subcategories multi64, ' .
-            'posted_at timestamp, file_size bigint, has_nzb bool' .
+            'posted_at timestamp, file_size bigint, has_nzb bool, ' .
+            'imdb_ids multi64, tvdb_ids multi64, tvmaze_ids multi64, ' .
+            'tmdb_movie_ids multi64, tmdb_tv_ids multi64, tmdb_ids multi64' .
             ") min_infix_len='2'",
         );
 
         $this->rawSql(
-            'SELECT id, title, description, category, subcategories, posted_at, file_size, has_nzb ' .
+            'SELECT id, title, description, category, subcategories, posted_at, file_size, has_nzb, ' .
+            'imdb_ids, tvdb_ids, tvmaze_ids, tmdb_movie_ids, tmdb_tv_ids, tmdb_ids ' .
             "FROM `{$this->index}` LIMIT 0",
         );
     }
@@ -301,9 +307,20 @@ class ManticoreSearchDriver implements SearchDriver
         }
 
         foreach ($criteria->metadataTermGroups as $metadataTerms) {
-            $must[] = ['in' => [
-                'id' => $this->resolveMetadataIds($metadataTerms),
-            ]];
+            $attributes = (new ExternalIdentifierNormalizer)->attributes(
+                (new ExternalIdentifierNormalizer)->terms($metadataTerms),
+            );
+            $should = [];
+
+            foreach ($attributes as $attribute => $values) {
+                if ($values !== []) {
+                    $should[] = ['in' => ['any(' . $attribute . ')' => $values]];
+                }
+            }
+
+            $must[] = $should === []
+                ? ['equals' => ['id' => 0]]
+                : ['bool' => ['should' => $should, 'minimum_should_match' => 1]];
         }
 
         if ($criteria->category !== null && $criteria->category !== '') {
@@ -314,7 +331,7 @@ class ManticoreSearchDriver implements SearchDriver
 
         if ($criteria->subcategories !== []) {
             $must[] = ['in' => [
-                'subcategories' => array_map(
+                'any(subcategories)' => array_map(
                     $this->documentMapper->subcategory(...),
                     $criteria->subcategories,
                 ),
@@ -384,35 +401,6 @@ class ManticoreSearchDriver implements SearchDriver
                 ),
             ],
         ];
-    }
-
-    /**
-     * Resolve external identifiers from PostgreSQL source metadata before
-     * asking Manticore to filter and sort the matching document IDs.
-     *
-     * @param  list<string>  $terms
-     * @return list<int>
-     */
-    private function resolveMetadataIds(array $terms): array
-    {
-        $ids = Spot::query()
-            ->where(function (Builder $metadataQuery) use ($terms): void {
-                foreach ($terms as $term) {
-                    $pattern = '%' . $term . '%';
-
-                    $metadataQuery->orWhere(function (Builder $termQuery) use ($pattern): void {
-                        $termQuery
-                            ->whereRaw('website ILIKE ?', [$pattern])
-                            ->orWhereRaw('description ILIKE ?', [$pattern])
-                            ->orWhereRaw('title ILIKE ?', [$pattern]);
-                    });
-                }
-            })
-            ->pluck('id')
-            ->map(static fn (mixed $id): int => (int) $id)
-            ->all();
-
-        return $ids !== [] ? $ids : [0];
     }
 
     /**

@@ -308,7 +308,7 @@ test('API search tvsearch and movie use the manticore query contract', function 
         $must = $query['bool']['must'];
         $id = match (true) {
             in_array(['equals' => ['category' => 2]], $must, true) => $general->id,
-            in_array(['in' => ['subcategories' => [$subcategory->subcategory('01z01')]]], $must, true) => $series->id,
+            in_array(['in' => ['any(subcategories)' => [$subcategory->subcategory('01z01')]]], $must, true) => $series->id,
             default => $movie->id,
         };
 

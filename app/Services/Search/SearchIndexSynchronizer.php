@@ -132,6 +132,7 @@ final readonly class SearchIndexSynchronizer
             'spot_posted_at',
             'file_size',
             'nzb_segments',
+            'external_identifiers',
         ]);
     }
 

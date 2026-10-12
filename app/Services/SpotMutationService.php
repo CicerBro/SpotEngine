@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Models\Spot;
+use App\Services\Search\ExternalIdentifierNormalizer;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -23,20 +24,10 @@ final readonly class SpotMutationService
             return 0;
         }
 
-        if (! $this->shouldQueueIndexSynchronization()) {
-            $affected = Spot::upsert($rows, $uniqueBy, $updateColumns);
-
-            if ($affected > 0) {
-                $this->listingCache->flush();
-            }
-
-            return $affected;
-        }
-
         [$affected, $spotIds] = DB::transaction(function () use ($rows, $uniqueBy, $updateColumns): array {
             $affected = Spot::upsert($rows, $uniqueBy, $updateColumns);
             $spotIds = $this->resolveSpotIds($rows);
-            $this->queueIndexSynchronization($spotIds);
+            $this->refreshIdentifiers($spotIds, false);
 
             return [$affected, $spotIds];
         });
@@ -57,20 +48,10 @@ final readonly class SpotMutationService
             return 0;
         }
 
-        if (! $this->shouldQueueIndexSynchronization()) {
-            $affected = DB::table('spots')->insertOrIgnore($rows);
-
-            if ($affected > 0) {
-                $this->listingCache->flush();
-            }
-
-            return $affected;
-        }
-
         [$affected, $spotIds] = DB::transaction(function () use ($rows): array {
             $affected = DB::table('spots')->insertOrIgnore($rows);
             $spotIds = $affected > 0 ? $this->resolveSpotIds($rows) : [];
-            $this->queueIndexSynchronization($spotIds);
+            $this->refreshIdentifiers($spotIds, false);
 
             return [$affected, $spotIds];
         });
@@ -90,8 +71,12 @@ final readonly class SpotMutationService
         $updated = DB::transaction(function () use ($spot, $attributes): bool {
             $updated = $spot->update($attributes);
 
-            if ($updated && $this->shouldQueueIndexSynchronization()) {
-                $this->queueIndexSynchronization([$spot->id]);
+            if ($updated) {
+                if (array_intersect(['title', 'description', 'website'], array_keys($attributes)) !== []) {
+                    $this->refreshIdentifiers([$spot->id], false);
+                } elseif ($this->shouldQueueIndexSynchronization()) {
+                    $this->queueIndexSynchronization([$spot->id]);
+                }
             }
 
             return $updated;
@@ -156,6 +141,50 @@ final readonly class SpotMutationService
         }
 
         return $deleted;
+    }
+
+    /**
+     * @param  list<int>  $spotIds
+     */
+    public function refreshIdentifiers(array $spotIds, bool $flushCache = true): void
+    {
+        if ($spotIds === []) {
+            return;
+        }
+
+        DB::transaction(function () use ($spotIds): void {
+            foreach (array_chunk($spotIds, 500) as $chunk) {
+                $spots = DB::table('spots')->select(['id', 'title', 'description', 'website'])
+                    ->whereIn('id', $chunk)->orderBy('id')->lockForUpdate()->get();
+                $values = [];
+                $bindings = [];
+
+                foreach ($spots as $spot) {
+                    $values[] = '(?::bigint, ?::jsonb)';
+                    $bindings[] = $spot->id;
+                    $bindings[] = json_encode(
+                        (new ExternalIdentifierNormalizer)->extract($spot->title, $spot->description, $spot->website),
+                        JSON_THROW_ON_ERROR,
+                    );
+                }
+
+                if ($values !== []) {
+                    DB::update(
+                        'UPDATE spots SET external_identifiers = normalized.identifiers FROM (VALUES ' .
+                        implode(', ', $values) . ') AS normalized(id, identifiers) WHERE spots.id = normalized.id',
+                        $bindings,
+                    );
+                }
+
+                if ($this->shouldQueueIndexSynchronization()) {
+                    $this->queueIndexSynchronization($chunk);
+                }
+            }
+        });
+
+        if ($flushCache) {
+            $this->listingCache->flush();
+        }
     }
 
     /**

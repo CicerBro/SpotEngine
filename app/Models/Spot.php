@@ -8,6 +8,7 @@ use App\Enums\RootCategory;
 use App\Enums\SearchField;
 use App\Services\BbCodeParsingService;
 use App\Services\Search\Contracts\SearchDriver;
+use App\Services\Search\ExternalIdentifierNormalizer;
 use Carbon\CarbonImmutable;
 use Database\Factories\SpotFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -28,6 +29,7 @@ use Illuminate\Support\Collection;
  * @property string|null $description
  * @property string|null $tag
  * @property string|null $website
+ * @property list<string>|null $external_identifiers
  * @property string $category_code
  * @property array<int, string> $subcategories
  * @property int $file_size
@@ -187,10 +189,24 @@ class Spot extends Model
         return $this->cachedDescriptionHtml;
     }
 
+    protected static function booted(): void
+    {
+        static::saving(function (Spot $spot): void {
+            if (! $spot->exists || $spot->isDirty(['title', 'description', 'website'])) {
+                $spot->external_identifiers = (new ExternalIdentifierNormalizer)->extract(
+                    $spot->title,
+                    $spot->description,
+                    $spot->website,
+                );
+            }
+        });
+    }
+
     #[\Override]
     protected function casts(): array
     {
         return [
+            'external_identifiers' => 'array',
             'subcategories' => 'array',
             'image_segments' => 'array',
             'nzb_segments' => 'array',

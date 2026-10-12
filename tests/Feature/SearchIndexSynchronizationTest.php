@@ -63,25 +63,27 @@ test('manticore upserts queue index synchronization for rows without ids', funct
     expect(DB::table('spot_search_sync_queue')->where('spot_id', $spot->id)->exists())->toBeTrue();
 });
 
-test('database search upserts do not resolve spot ids for external synchronization', function () {
+test('database search upserts normalize metadata without queuing external synchronization', function () {
     config()->set('search.driver', 'database');
     $queries = [];
 
     DB::listen(function (QueryExecuted $query) use (&$queries): void {
-        if (str_contains($query->sql, 'where "message_id" in')) {
+        if (str_contains($query->sql, 'spot_search_sync_queue')) {
             $queries[] = $query->sql;
         }
     });
 
     app(SpotMutationService::class)->upsert([[
         'message_id' => 'database-upsert@example.test',
-        'title' => 'Database Upsert',
+        'title' => 'Database Upsert imdb.com/title/tt1234567',
         'category_code' => '01',
         'spot_posted_at' => now(),
     ]], ['message_id'], ['title']);
 
     expect($queries)->toBeEmpty()
         ->and(DB::table('spot_search_sync_queue')->count())->toBe(0);
+    expect(Spot::query()->where('message_id', 'database-upsert@example.test')->firstOrFail()->external_identifiers)
+        ->toBe(['imdb:1234567']);
 });
 
 test('synchronizer indexes current rows deletes removed rows and acknowledges durable tokens', function () {

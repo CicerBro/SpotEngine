@@ -8,6 +8,7 @@ use App\Data\SpotSearchCriteria;
 use App\Enums\SearchField;
 use App\Models\Spot;
 use App\Services\Search\Contracts\SearchDriver;
+use App\Services\Search\ExternalIdentifierNormalizer;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Pagination\Cursor;
 use Illuminate\Pagination\CursorPaginator;
@@ -191,16 +192,15 @@ class DatabaseSearchDriver implements SearchDriver
      */
     private function whereMetadataContainsAny(Builder $query, array $terms): Builder
     {
-        return $query->where(function (Builder $metadataQuery) use ($terms): void {
-            foreach ($terms as $term) {
-                $pattern = '%' . $term . '%';
+        $identifiers = (new ExternalIdentifierNormalizer)->terms($terms);
 
-                $metadataQuery->orWhere(function (Builder $termQuery) use ($pattern): void {
-                    $termQuery
-                        ->whereRaw('website ILIKE ?', [$pattern])
-                        ->orWhereRaw('description ILIKE ?', [$pattern])
-                        ->orWhereRaw('title ILIKE ?', [$pattern]);
-                });
+        if ($identifiers === []) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->where(function (Builder $metadataQuery) use ($identifiers): void {
+            foreach ($identifiers as $identifier) {
+                $metadataQuery->orWhereRaw('external_identifiers @> ?::jsonb', [json_encode([$identifier], JSON_THROW_ON_ERROR)]);
             }
         });
     }
