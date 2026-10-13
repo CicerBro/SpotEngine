@@ -223,6 +223,49 @@ test('parseXml only retains safe website schemes', function (string $website, ?s
     'relative' => ['//example.com/path', null],
 ]);
 
+test('parseXml limits metadata by characters without changing signatures', function (int $length, int $posterLength, int $titleLength) {
+    $poster = str_repeat('é', $length);
+    $title = str_repeat('界', $length);
+    $tag = str_repeat('ü', $length);
+    $signature = str_repeat('s', 512);
+    $website = 'https://example.com/' . str_repeat('a', 600);
+    $xml = "<Spotnet><Posting><Poster>{$poster}</Poster><Title>{$title}</Title><Tag>{$tag}</Tag><Website>{$website}</Website><Category>01</Category></Posting></Spotnet>";
+
+    $spot = (new SpotParser)->parseXml($xml, ['x-xml-signature' => $signature]);
+
+    expect($spot['poster'])->toBe(str_repeat('é', $posterLength));
+    expect($spot['title'])->toBe(str_repeat('界', $titleLength));
+    expect($spot['tag'])->toBe(str_repeat('ü', $posterLength));
+    expect($spot['xml_signature'])->toBe($signature);
+    expect($spot['website'])->toBe('https://example.com/' . str_repeat('a', 235));
+})->with([
+    'poster and tag at limit' => [255, 255, 255],
+    'poster and tag over limit' => [256, 255, 256],
+    'title at limit' => [500, 255, 500],
+    'title over limit' => [501, 255, 500],
+]);
+
+test('parseXml caps website values at 255 characters', function (int $pathLength) {
+    $website = 'https://example.com/' . str_repeat('a', $pathLength);
+    $xml = "<Spotnet><Posting><Title>Website length test</Title><Website>{$website}</Website><Category>01</Category></Posting></Spotnet>";
+
+    $spot = (new SpotParser)->parseXml($xml);
+
+    expect($spot['website'])->toBe('https://example.com/' . str_repeat('a', 235));
+})->with([
+    'at limit' => 235,
+    'over limit' => 236,
+]);
+
+test('parseXml limits the fallback poster and retains an absent tag', function () {
+    $xml = '<Spotnet><Posting><Title>Fallback poster</Title><Category>01</Category></Posting></Spotnet>';
+
+    $spot = (new SpotParser)->parseXml($xml, ['from' => str_repeat('é', 256)]);
+
+    expect($spot['poster'])->toBe(str_repeat('é', 255));
+    expect($spot['tag'])->toBeNull();
+});
+
 /**
  * @return array{subject: string, from: string, date: string, message_id: string}
  */

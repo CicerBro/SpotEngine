@@ -234,10 +234,10 @@ class SpotParser
         // Build the spot array
         $spot = [
             'message_id' => $headers['message-id'] ?? trim($headers['message_id'] ?? '', '<>'),
-            'poster' => (string) ($posting->Poster ?? $headers['from'] ?? 'Unknown'),
-            'title' => (string) $posting->Title,
+            'poster' => mb_substr((string) ($posting->Poster ?? $headers['from'] ?? 'Unknown'), 0, 255),
+            'title' => mb_substr((string) $posting->Title, 0, 500),
             'description' => property_exists($posting, 'Description') && $posting->Description !== null ? (string) $posting->Description : null,
-            'tag' => property_exists($posting, 'Tag') && $posting->Tag !== null ? (string) $posting->Tag : null,
+            'tag' => property_exists($posting, 'Tag') && $posting->Tag !== null ? mb_substr((string) $posting->Tag, 0, 255) : null,
             'website' => property_exists($posting, 'Website') && $posting->Website !== null
                 ? $this->sanitizeWebsite((string) $posting->Website)
                 : null,
@@ -529,7 +529,7 @@ class SpotParser
             return null;
         }
 
-        return filter_var($website, FILTER_VALIDATE_URL) !== false ? $website : null;
+        return filter_var($website, FILTER_VALIDATE_URL) !== false ? mb_substr($website, 0, 255) : null;
     }
 
     private function normalizeSubcategoryCode(string $subcategoryCode, string $mainCategoryCode): ?string

@@ -155,6 +155,59 @@ test('initial scan inserts only overview fields and ignores duplicate conflicts'
         ->and($persisted->is_verified)->toBeFalse();
 });
 
+test('full retrieval persists a batch with oversized XML metadata and updates it', function () {
+    $service = new IntegrityTestSpotRetriever;
+    $poster = str_repeat('é', 256);
+    $title = str_repeat('界', 501);
+    $tag = str_repeat('ü', 256);
+    $website = 'https://example.test/' . str_repeat('a', 600);
+    $signature = str_repeat('s', 512);
+    $xml = "<Spotnet><Posting><Poster>{$poster}</Poster><Title>{$title}</Title><Tag>{$tag}</Tag><Website>{$website}</Website><Category>01</Category><Created>1700000000</Created></Posting></Spotnet>";
+    $spot = (new SpotParser)->parseXml($xml, [
+        'message-id' => 'oversized-metadata@example.test',
+        'x-xml-signature' => $signature,
+    ]);
+    $spot['is_verified'] = true;
+    $otherSpot = array_replace($spot, [
+        'message_id' => 'other-spot@example.test',
+        'title' => 'Other spot',
+        'poster' => 'Poster',
+        'tag' => null,
+        'website' => null,
+        'xml_signature' => null,
+    ]);
+
+    $service->batchUpsertForTest([$spot, $otherSpot], initialScan: false);
+
+    $this->assertDatabaseHas('spots', [
+        'message_id' => $spot['message_id'],
+        'poster' => str_repeat('é', 255),
+        'title' => str_repeat('界', 500),
+        'tag' => str_repeat('ü', 255),
+        'website' => 'https://example.test/' . str_repeat('a', 234),
+        'xml_signature' => $signature,
+        'is_verified' => true,
+    ]);
+    $this->assertDatabaseHas('spots', [
+        'message_id' => $otherSpot['message_id'],
+        'title' => 'Other spot',
+        'website' => null,
+        'xml_signature' => null,
+    ]);
+
+    $spot['xml_signature'] = str_repeat('u', 700);
+    $spot['website'] = 'https://example.test/updated';
+
+    $service->batchUpsertForTest([$spot], initialScan: false);
+
+    $this->assertDatabaseCount('spots', 2);
+    $this->assertDatabaseHas('spots', [
+        'message_id' => $spot['message_id'],
+        'xml_signature' => str_repeat('u', 700),
+        'website' => 'https://example.test/updated',
+    ]);
+});
+
 class IntegrityTestSpotRetriever extends SpotRetrieverService
 {
     public bool $stopAfterFetch = false;
