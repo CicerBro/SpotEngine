@@ -2,6 +2,10 @@
 
 A modern Spotnet web client built on Laravel 13 with PostgreSQL and a Newznab-compatible API.
 
+![SpotEngine browsing interface with fictional release names and color-coded categories](.github/screenshot.jpg)
+
+*Example listings use fictional names and metadata.*
+
 ## Why SpotEngine?
 
 [Spotweb](https://github.com/spotweb/spotweb) is a great piece of software, but years of incremental development have made the codebase increasingly difficult to work with. It carries legacy PHP patterns, a complex data model, and performance trade-offs that were fine at the time but show their age today. The developers seem unwilling to properly improve things, hence SpotEngine was born.
