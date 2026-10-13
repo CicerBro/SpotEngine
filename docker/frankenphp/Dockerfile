@@ -21,6 +21,8 @@ RUN apt update && apt install -y curl ca-certificates procps nano htop wget iput
     && apt install -y postgresql-client-18 7zip unzip
 
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+COPY --from=oven/bun:1 /usr/local/bin/bun /usr/local/bin/bun
+RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
 COPY docker/frankenphp/Caddyfile /etc/frankenphp/Caddyfile
 COPY docker/frankenphp/conf.d/99-app.ini /usr/local/etc/php/conf.d/99-app.ini
