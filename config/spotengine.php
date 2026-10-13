@@ -94,7 +94,7 @@ return [
     |   this number.
     */
     'retrieval' => [
-        'batch_size' => (int) env('RETRIEVAL_BATCH_SIZE', 5000),
+        'batch_size' => (int) env('RETRIEVAL_BATCH_SIZE', 500),
         'memory_limit' => env('RETRIEVAL_MEMORY_LIMIT', '1G'),
         /*
          * Unix timestamp cutoff for spot retrieval. Spots posted on or before this
