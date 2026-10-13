@@ -8,11 +8,10 @@ $imageUrl = route('spots.image', $spot);
 $readUntil = $spotsReadUntil ?? auth()->user()?->spots_read_until;
 $isUnread = $readUntil === null || $spot->spot_posted_at->isAfter($readUntil);
 $titleWeightClass = $isUnread ? 'font-bold' : 'font-normal';
-$rowUnreadClass = $isUnread ? 'bg-blue-50/70 dark:bg-blue-950/30' : '';
 @endphp
 
 {{-- Desktop row --}}
-<tr class="group hidden transition-colors md:table-row {{ $rowBgClass }} {{ $rowUnreadClass }}">
+<tr class="group hidden transition-colors md:table-row {{ $rowBgClass }}">
     <td class="w-16 overflow-hidden py-1 pl-3 pr-1">
         @include('partials.category-badge', ['category' => $badgeCategory ?? $spot->category, 'rootCategory' => $rootCategory])
     </td>
