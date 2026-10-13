@@ -1,11 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-labelledby="title">
   <title id="title">SpotEngine</title>
   <path
-    d="M23.8 6.5H13.2a5.2 5.2 0 0 0 0 10.4h5.6a5.2 5.2 0 0 1 0 10.4H8.2"
-    fill="none"
-    stroke="#2563eb"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-    stroke-width="3.2"
+    d="M16 3 27 9.3v5.8L16 8.7l-6 3.5 10.3 6.4-4.3 2.5L5 14.6V9.3Z M16 11.7l11 6.4v4.6L16 29 5 22.7v-6L16 23.2l7-4-9.9-6Z"
+    fill="#2563eb"
   />
 </svg>
