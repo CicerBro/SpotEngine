@@ -42,7 +42,7 @@
                 </div>
                 <select name="search_in"
                         onchange="if(this.form.q.value) this.form.submit()"
-                        class="cursor-pointer rounded-lg border border-gray-200 bg-gray-50 px-2 py-2 text-xs text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:focus:ring-offset-slate-950">
+                        class="cursor-pointer rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm text-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-1 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:focus:ring-offset-slate-950">
                     <option value="title" @selected(request('search_in', 'title') === 'title')>Title</option>
                     <option value="description" @selected(request('search_in') === 'description')>Description</option>
                     <option value="both" @selected(request('search_in') === 'both')>Title + Description</option>
