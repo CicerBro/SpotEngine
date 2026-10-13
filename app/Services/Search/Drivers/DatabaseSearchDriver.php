@@ -153,9 +153,7 @@ class DatabaseSearchDriver implements SearchDriver
             $query->inCategory($criteria->category);
         }
 
-        if ($criteria->subcategories !== []) {
-            $query->withSubcategory($criteria->subcategories);
-        }
+        $this->whereSubcategoryGroups($query, $criteria->subcategoryGroups());
 
         if ($criteria->termVariants !== []) {
             $this->searchVariants($query, $criteria->termVariants, $criteria->field);
@@ -185,6 +183,35 @@ class DatabaseSearchDriver implements SearchDriver
             ->select(['id', 'title', 'description', 'poster', 'file_size', 'spot_posted_at', 'category_code', 'subcategories'])
             ->selectRaw("(nzb_segments <> '[]'::jsonb) AS has_nzb")
             ->with('category:code,name,slug');
+    }
+
+    /**
+     * Fold singleton facets into one containment predicate so PostgreSQL can
+     * estimate the combined selectivity and use the existing JSONB GIN index.
+     *
+     * @param  list<list<string>>  $groups
+     */
+    private function whereSubcategoryGroups(Builder $query, array $groups): void
+    {
+        $required = [];
+
+        foreach ($groups as $group) {
+            if (count($group) === 1) {
+                $required[] = $group[0];
+
+                continue;
+            }
+
+            $query->where(function (Builder $facetQuery) use ($group): void {
+                foreach ($group as $subcategory) {
+                    $facetQuery->orWhereJsonContains('subcategories', [$subcategory]);
+                }
+            });
+        }
+
+        if ($required !== []) {
+            $query->whereJsonContains('subcategories', $required);
+        }
     }
 
     /**

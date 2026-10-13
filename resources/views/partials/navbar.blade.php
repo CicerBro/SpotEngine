@@ -22,7 +22,7 @@
     {{-- CENTER: search --}}
     <div class="flex-1 max-w-sm lg:max-w-md">
         <form method="GET" action="{{ route('home') }}" role="search">
-            @foreach(array_filter(request()->query(), fn ($key) => ! in_array($key, ['q', 'search_in', 'cursor', 'exc_subcat']), ARRAY_FILTER_USE_KEY) as $key => $value)
+            @foreach(array_filter(request()->query(), fn ($key) => ! in_array($key, ['q', 'search_in', 'cursor', 'page', 'exc_subcat']), ARRAY_FILTER_USE_KEY) as $key => $value)
                 @foreach((array) $value as $item)
                     <input type="hidden" name="{{ $key }}{{ is_array($value) ? '[]' : '' }}" value="{{ $item }}">
                 @endforeach

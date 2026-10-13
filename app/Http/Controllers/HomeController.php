@@ -14,12 +14,14 @@ use App\Services\NzbDownloadService;
 use App\Services\Search\Contracts\SearchDriver;
 use App\Services\SpotEnricher;
 use App\Services\SpotImageService;
+use Closure;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Pagination\CursorPaginator;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 use Symfony\Component\HttpFoundation\AcceptHeader;
 use Symfony\Component\HttpFoundation\AcceptHeaderItem;
@@ -36,6 +38,7 @@ class HomeController extends Controller
 
     public function index(Request $request): View|JsonResponse
     {
+        $this->normalizeFilters($request);
         $criteria = $this->searchCriteria($request);
 
         /** @var User|null $user */
@@ -43,7 +46,9 @@ class HomeController extends Controller
 
         /** @var array{spots: CursorPaginator<int, Spot>, spotCount: int|null} $listing */
         $listing = $this->listingCache->remember($request, function () use ($request, $criteria): array {
-            $spotCount = $request->expectsJson() ? null : $this->searchDriver->count($criteria);
+            $spotCount = $request->expectsJson() || $criteria->subcategories !== []
+                ? null
+                : $this->searchDriver->count($criteria);
 
             return [
                 'spots' => $this->searchDriver
@@ -190,6 +195,61 @@ class HomeController extends Controller
     public function categoriesJson(): JsonResponse
     {
         return response()->json(Category::tree());
+    }
+
+    private function normalizeFilters(Request $request): void
+    {
+        $subcategories = $request->input('subcat');
+
+        if (\is_string($subcategories)) {
+            $request->merge(['subcat' => [$subcategories]]);
+        }
+
+        $category = $request->input('cat');
+        $validated = $request->validate([
+            'cat' => ['nullable', 'string', 'regex:/^0[1-4]$/'],
+            'subcat' => ['nullable', 'array', 'max:64'],
+            'subcat.*' => [
+                'bail',
+                'required',
+                'string',
+                'regex:/^0[1-4][a-dz][0-9]{2}$/',
+                function (string $attribute, mixed $value, Closure $fail) use ($category): void {
+                    if (\is_string($category) && $category !== '' && ! str_starts_with($value, $category)) {
+                        $fail('The selected filter must belong to the selected category.');
+                    }
+                },
+            ],
+        ]);
+
+        $subcategories = array_values(array_unique($validated['subcat'] ?? []));
+        sort($subcategories, SORT_STRING);
+
+        $category = $validated['cat'] ?? null;
+
+        if ($category === null && $subcategories !== []) {
+            $roots = array_unique(array_map(static fn (string $code): string => substr($code, 0, 2), $subcategories));
+
+            if (count($roots) !== 1) {
+                throw ValidationException::withMessages([
+                    'subcat' => 'Choose filters from one category at a time.',
+                ]);
+            }
+
+            $category = $roots[0];
+        }
+
+        if ($subcategories === []) {
+            $request->query->remove('subcat');
+        } else {
+            $request->merge(['subcat' => $subcategories]);
+        }
+
+        if ($category === null) {
+            $request->query->remove('cat');
+        } else {
+            $request->merge(['cat' => $category]);
+        }
     }
 
     private function searchCriteria(Request $request): SpotSearchCriteria

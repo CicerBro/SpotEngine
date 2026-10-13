@@ -1,8 +1,13 @@
-<div x-data="infiniteSpots(@js($spots->nextPageUrl()), {{ $spots->count() }}, {{ (int) $spotCount }})">
+<div x-data="infiniteSpots(@js($spots->nextPageUrl()), {{ $spots->count() }}, @js($spotCount))">
     {{-- Toolbar --}}
     <div class="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 py-2 dark:border-slate-800 dark:bg-slate-950">
         <div class="flex min-w-0 items-center gap-3">
-            <span class="shrink-0 text-sm text-gray-500 dark:text-slate-400">{{ number_format($spotCount) }} spots</span>
+            @if($spotCount === null)
+                <span class="shrink-0 text-sm text-gray-500 dark:text-slate-400"
+                      x-text="`${loadedCount.toLocaleString()} spots loaded`">{{ number_format($spots->count()) }} spots loaded</span>
+            @else
+                <span class="shrink-0 text-sm text-gray-500 dark:text-slate-400">{{ number_format($spotCount) }} spots</span>
+            @endif
 
             @include('partials.spot-filters-active', ['compact' => true])
         </div>

@@ -67,6 +67,34 @@ test('different query params produce separate cache entries', function () {
     expect($response3->viewData('spotCount'))->toBe(3);
 });
 
+test('equivalent subcategory selections share a listing cache entry', function () {
+    config(['spotengine.listing_cache.enabled' => true]);
+    $service = app(ListingCacheService::class);
+    $first = Request::create('/?' . http_build_query([
+        'cat' => '01', 'subcat' => ['01z03', '01a15', '01z03'],
+    ]));
+    $equivalent = Request::create('/?' . http_build_query([
+        'subcat' => ['01a15', '01z03'], 'cat' => '01',
+    ]));
+    $different = Request::create('/?' . http_build_query([
+        'cat' => '01', 'subcat' => ['01a15', '01z00'],
+    ]));
+
+    $service->remember($first, fn (): string => 'original');
+
+    expect($service->remember($equivalent, fn (): string => 'recomputed'))->toBe('original');
+    expect($service->remember($different, fn (): string => 'different'))->toBe('different');
+});
+
+test('empty and absent subcategory selections share a listing cache entry', function () {
+    config(['spotengine.listing_cache.enabled' => true]);
+    $service = app(ListingCacheService::class);
+    $service->remember(Request::create('/'), fn (): string => 'unfiltered');
+
+    expect($service->remember(Request::create('/', 'GET', ['subcat' => []]), fn (): string => 'recomputed'))
+        ->toBe('unfiltered');
+});
+
 test('flush clears all listing cache entries', function () {
     config(['spotengine.listing_cache.enabled' => true, 'spotengine.listing_cache.ttl' => 5]);
 

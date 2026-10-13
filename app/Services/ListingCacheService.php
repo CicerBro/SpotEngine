@@ -13,7 +13,7 @@ class ListingCacheService
 {
     private const string GENERATION_KEY = 'spots:listing:generation';
 
-    private const string KEY_PREFIX = 'spots:listing:';
+    private const string KEY_PREFIX = 'spots:listing:v2:';
 
     private const array RELEVANT_PARAMS = ['cat', 'subcat', 'q', 'search_in', 'per_page', 'cursor', 'new'];
 
@@ -51,6 +51,17 @@ class ListingCacheService
     private function cacheKey(Request $request): string
     {
         $params = $request->only(self::RELEVANT_PARAMS);
+
+        if (isset($params['subcat'])) {
+            $subcategories = array_values(array_unique(array_filter((array) $params['subcat'], \is_string(...))));
+            sort($subcategories, SORT_STRING);
+            if ($subcategories === []) {
+                unset($params['subcat']);
+            } else {
+                $params['subcat'] = $subcategories;
+            }
+        }
+
         $params['_response'] = $request->expectsJson() ? 'json' : 'html';
         $params['_generation'] = $this->generation();
 

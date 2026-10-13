@@ -127,7 +127,9 @@ test('home page can filter by subcategory', function () {
     $response = $this->actingAs($user)->get('/?cat=01&subcat[]=01a00');
 
     $response->assertSuccessful();
-    expect($response->viewData('spotCount'))->toBe(1);
+    expect($response->viewData('spotCount'))->toBeNull();
+    expect($response->viewData('spots')->count())->toBe(1);
+    $response->assertSee('1 spots loaded');
 });
 
 test('home page renders subcategory filters for active category', function () {
@@ -185,7 +187,7 @@ test('home page renders subcategory filters for active category', function () {
     // Active filter pills show the active category and subcat
     $response->assertSee('Image');
     $response->assertSee('DivX');
-    // Sidebar shows format/type subcats as links (not checkboxes)
+    // Sidebar exposes selectable format and type groups.
     $response->assertSee('Movie'); // type subcat
     $response->assertSee('?cat=01');
     // Hidden subcats (name='-') are not shown

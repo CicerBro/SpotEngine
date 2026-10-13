@@ -6,7 +6,7 @@ $compact = $compact ?? false;
 @if($hasFilters)
     <div class="{{ $compact ? 'flex flex-wrap gap-1' : 'px-3 mb-3 flex flex-wrap gap-1' }}">
         @if(request()->boolean('new'))
-            <a href="{{ request()->fullUrlWithoutQuery('new') }}"
+            <a href="{{ request()->fullUrlWithoutQuery(['new', 'cursor', 'page']) }}"
                class="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs text-blue-700 transition-colors hover:bg-blue-200 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900">
                 New
                 <svg class="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
@@ -16,7 +16,7 @@ $compact = $compact ?? false;
         @endif
 
         @if(request()->filled('q'))
-            <a href="{{ request()->fullUrlWithoutQuery('q') }}"
+            <a href="{{ request()->fullUrlWithoutQuery(['q', 'cursor', 'page']) }}"
                class="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs text-blue-700 transition-colors hover:bg-blue-200 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900">
                 <svg class="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
                     <path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.499 4.499 0 1 0-8.997 0A4.499 4.499 0 0 0 11.5 7Z"/>
@@ -33,7 +33,7 @@ $compact = $compact ?? false;
                 $catCode = request('cat');
                 $catName = ($categoriesByCode ?? collect())->get($catCode)?->name ?? $catCode;
             @endphp
-            <a href="{{ request()->fullUrlWithoutQuery(['cat', 'subcat']) }}"
+            <a href="{{ request()->fullUrlWithoutQuery(['cat', 'subcat', 'cursor', 'page']) }}"
                class="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs text-blue-700 transition-colors hover:bg-blue-200 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900">
                 {{ $catName }}
                 <svg class="h-3 w-3" viewBox="0 0 16 16" fill="currentColor">
@@ -47,8 +47,8 @@ $compact = $compact ?? false;
                 $subcatName = ($categoriesByCode ?? collect())->get($subcatCode)?->name ?? $subcatCode;
                 $remaining = array_filter((array) request('subcat', []), fn ($c) => $c !== $subcatCode);
                 $removeUrl = $remaining
-                    ? request()->fullUrlWithQuery(['subcat' => array_values($remaining)])
-                    : request()->fullUrlWithoutQuery('subcat');
+                    ? route('home', array_merge(request()->except(['subcat', 'cursor', 'page']), ['subcat' => array_values($remaining)]))
+                    : request()->fullUrlWithoutQuery(['subcat', 'cursor', 'page']);
             @endphp
             <a href="{{ $removeUrl }}"
                class="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-100 px-2 py-0.5 text-xs text-blue-700 transition-colors hover:bg-blue-200 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-300 dark:hover:bg-blue-900">

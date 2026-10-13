@@ -329,11 +329,11 @@ class ManticoreSearchDriver implements SearchDriver
             ]];
         }
 
-        if ($criteria->subcategories !== []) {
+        foreach ($criteria->subcategoryGroups() as $subcategories) {
             $must[] = ['in' => [
                 'any(subcategories)' => array_map(
                     $this->documentMapper->subcategory(...),
-                    $criteria->subcategories,
+                    $subcategories,
                 ),
             ]];
         }

@@ -7,6 +7,17 @@ $categoryColorMap = [
 ];
 
 $sidebarTree = $categoryTree ?? [];
+$facetLabels = [
+    'type' => 'Type',
+    'format' => 'Format',
+    'platform' => 'Platform',
+    'source' => 'Source',
+    'language' => 'Language',
+    'bitrate' => 'Bitrate',
+    'genre' => 'Genre',
+];
+$preservedFilters = request()->only(['q', 'new', 'search_in', 'per_page']);
+$activeRootCode = request('cat') ?: array_key_first($sidebarTree);
 @endphp
 
 {{-- Mobile backdrop --}}
@@ -32,7 +43,7 @@ $sidebarTree = $categoryTree ?? [];
     <div class="min-h-0 flex-1 overflow-y-auto py-4">
         @auth
             <div class="mb-4 px-3">
-                <a href="{{ route('home', ['new' => 1]) }}"
+                <a href="{{ route('home', array_merge(request()->except(['cursor', 'page', 'exc_subcat']), ['new' => 1])) }}"
                    class="flex items-center justify-between rounded-md px-2 py-1.5 text-sm transition-colors {{ request()->boolean('new') ? 'bg-blue-50 font-semibold text-blue-700 dark:bg-blue-950 dark:text-blue-300' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100' }}">
                     <span>New</span>
                     @if($unreadCount > 0)
@@ -55,65 +66,93 @@ $sidebarTree = $categoryTree ?? [];
 
         @include('partials.spot-filters-active', ['compact' => false])
 
+        <form method="GET" action="{{ route('home') }}" id="sidebar-filters">
+            <input type="hidden" name="cat" value="{{ $activeRootCode }}">
+            @foreach($preservedFilters as $key => $value)
+                <input type="hidden" name="{{ $key }}" value="{{ $value }}">
+            @endforeach
         @foreach($sidebarTree as $code => $node)
             @php
                 $rootCat = $node['category'];
                 $colorVar = $categoryColorMap[$rootCat->slug] ?? '--color-cat-image';
                 $subcats = $node['subcategories'];
-                $visibleSubcats = collect()
-                    ->merge($subcats['format'] ?? [])
-                    ->merge($subcats['type'] ?? [])
-                    ->merge($subcats['platform'] ?? []);
+                $isCurrentRoot = $activeRootCode === $rootCat->code;
+                $rootOpen = $isCurrentRoot || (! request()->filled('cat') && $loop->first);
             @endphp
 
-            <div class="mb-1" x-data="{ open: localStorage.getItem('sidebar-cat-{{ $code }}') !== 'false' }">
+            <details class="group/root mb-1" id="sidebar-root-{{ $code }}" @if($rootOpen) open @endif
+                     x-data
+                     x-init="if (! {{ $isCurrentRoot ? 'true' : 'false' }}) { const saved = localStorage.getItem('sidebar-cat-{{ $code }}'); if (saved !== null) $el.open = saved === 'true'; }"
+                     @toggle="localStorage.setItem('sidebar-cat-{{ $code }}', $el.open)">
+
                 {{-- Category header --}}
-                <button type="button"
-                        @click="open = !open; localStorage.setItem('sidebar-cat-{{ $code }}', open)"
-                        class="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-gray-50 focus:outline-none dark:hover:bg-slate-900">
+                <summary class="flex w-full cursor-pointer list-none items-center gap-2 px-3 py-1.5 transition-colors hover:bg-gray-50 focus-visible:outline-2 focus-visible:outline-blue-500 dark:hover:bg-slate-900">
                     <span class="w-[3px] h-4 rounded-full shrink-0"
                           style="background-color: var({{ $colorVar }})"></span>
-                    <a href="{{ request()->fullUrlWithQuery(['cat' => $rootCat->code]) }}"
+                    <a href="{{ route('home', array_merge($preservedFilters, ['cat' => $rootCat->code])) }}"
                        @click.stop
                        class="flex-1 text-sm font-semibold uppercase tracking-wider text-gray-500 transition-colors hover:text-gray-900 dark:text-slate-400 dark:hover:text-slate-100
                               {{ request('cat') === $rootCat->code ? 'text-gray-900 dark:text-slate-100' : '' }}">
                         {{ $rootCat->name }}
                     </a>
-                    <svg class="h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform duration-150 dark:text-slate-500"
-                         :class="open ? 'rotate-180' : ''"
-                         viewBox="0 0 16 16" fill="currentColor">
-                        <path d="M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z"/>
-                    </svg>
-                </button>
+                        <svg class="h-3.5 w-3.5 shrink-0 text-gray-400 transition-transform duration-150 group-open/root:rotate-180 dark:text-slate-500"
+                             viewBox="0 0 16 16" fill="currentColor">
+                            <path d="M4.427 7.427l3.396 3.396a.25.25 0 0 0 .354 0l3.396-3.396A.25.25 0 0 0 11.396 7H4.604a.25.25 0 0 0-.177.427Z"/>
+                        </svg>
+                </summary>
 
                 {{-- Sub-items --}}
-                <div x-show="open" x-collapse x-cloak>
-                    @foreach($visibleSubcats as $sub)
-                        @php
-                            $isActive = in_array($sub->code, (array) request('subcat', []), true);
-                            $filterUrl = request()->fullUrlWithQuery([
-                                'cat'    => $rootCat->code,
-                                'subcat' => $sub->code,
-                            ]);
-                        @endphp
-                        <a href="{{ $filterUrl }}"
-                           class="flex items-center py-[3px] pl-7 pr-3 text-sm transition-colors
-                                  {{ $isActive
-                                      ? 'bg-blue-50 font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-300'
-                                      : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100' }}">
-                            @if($isActive)
-                                <span class="mr-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-600"></span>
-                            @else
-                                <span class="mr-1.5 h-1.5 w-1.5 shrink-0"></span>
+                <div>
+                    @if(! $isCurrentRoot)
+                        <p class="px-5 py-2 text-xs text-gray-500 dark:text-slate-400">Select this category to choose filters.</p>
+                    @endif
+                    <p class="px-5 py-2 text-xs text-gray-500 dark:text-slate-400">
+                        Match any choice within a group. Each selected group must match.
+                    </p>
+                    @foreach($facetLabels as $facet => $label)
+                        @if(count($subcats[$facet] ?? []))
+                            @php
+                                $isSecondaryFacet = in_array($facet, ['source', 'language', 'bitrate', 'genre'], true);
+                                $facetHasSelection = collect($subcats[$facet])->contains(fn ($sub) => in_array($sub->code, (array) request('subcat', []), true));
+                            @endphp
+                            @if($isSecondaryFacet)
+                                <details class="mb-3 px-5" @if($facetHasSelection) open @endif>
+                                    <summary class="mb-1 cursor-pointer text-xs font-semibold text-gray-700 focus-visible:outline-2 focus-visible:outline-blue-500 dark:text-slate-300">{{ $label }}</summary>
                             @endif
-                            {{ $sub->name }}
-                        </a>
+                            <fieldset class="{{ $isSecondaryFacet ? '' : 'mb-3 px-5' }}">
+                                <legend class="{{ $isSecondaryFacet ? 'sr-only' : 'mb-1 text-xs font-semibold text-gray-700 dark:text-slate-300' }}">{{ $label }}</legend>
+                                @foreach($subcats[$facet] as $sub)
+                                    @php
+                                        $isActive = in_array($sub->code, (array) request('subcat', []), true);
+                                    @endphp
+                                    <label class="flex {{ $isCurrentRoot ? 'cursor-pointer' : 'opacity-50' }} items-center gap-2 rounded py-1 text-sm {{ $isActive ? 'font-medium text-blue-700 dark:text-blue-300' : 'text-gray-500 dark:text-slate-400' }} hover:bg-gray-50 dark:hover:bg-slate-900">
+                                        <input type="checkbox" name="subcat[]" value="{{ $sub->code }}"
+                                               @checked($isCurrentRoot && $isActive)
+                                               @disabled(! $isCurrentRoot)
+                                               class="h-4 w-4 shrink-0 accent-blue-600 focus-visible:outline-2 focus-visible:outline-blue-500">
+                                        <span>{{ $sub->name }}</span>
+                                    </label>
+                                @endforeach
+                            </fieldset>
+                            @if($isSecondaryFacet)
+                                </details>
+                            @endif
+                        @endif
                     @endforeach
                 </div>
-            </div>
+            </details>
         @endforeach
+        </form>
     @endif
     </div>
+
+    @if(!empty($sidebarTree))
+        <div class="shrink-0 border-t border-gray-200 px-5 py-3 dark:border-slate-800">
+            <button type="submit" form="sidebar-filters" class="w-full cursor-pointer rounded-md bg-blue-600 px-3 py-1 text-sm font-medium text-white hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500 dark:bg-blue-500 dark:hover:bg-blue-600">
+                Apply filters
+            </button>
+        </div>
+    @endif
 
     {{-- Last retrieval + USER + LOGOUT (always visible at bottom) --}}
     <div class="mt-auto shrink-0 border-t border-gray-200 px-3 py-3 dark:border-slate-800">

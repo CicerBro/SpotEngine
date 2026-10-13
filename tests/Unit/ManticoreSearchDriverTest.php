@@ -271,3 +271,49 @@ test('manticore never silently applies a database builder search', function () {
     expect(fn () => manticoreDriver()->search(Spot::query(), 'ignored'))
         ->toThrow(ManticoreSearchException::class, 'must use the query-engine paginator');
 });
+
+test('manticore listing and count require each facet while accepting alternatives within it', function () {
+    Http::preventStrayRequests();
+    Http::fake([
+        'manticore.test:9308/search' => Http::response([
+            'hits' => ['total' => 0, 'total_relation' => 'eq', 'hits' => []],
+        ]),
+    ]);
+    $criteria = new SpotSearchCriteria(
+        term: 'Aurora',
+        category: '01',
+        subcategories: ['01z03', '01a15', '01d04', '01b11', '01a09', '01d00', '01a15'],
+        unreadOnly: true,
+        unreadSince: new DateTimeImmutable('2026-10-13 11:00:00 UTC'),
+    );
+
+    $spots = manticoreDriver()->cursorPaginate($criteria);
+    $count = manticoreDriver()->count($criteria);
+
+    expect($spots->items())->toBe([]);
+    expect($count)->toBe(0);
+    $mapper = new ManticoreDocumentMapper;
+    $expectedQuery = ['bool' => ['must' => [
+        ['match' => ['title' => 'Aurora']],
+        ['equals' => ['category' => 1]],
+        ['in' => ['any(subcategories)' => [$mapper->subcategory('01a09'), $mapper->subcategory('01a15')]]],
+        ['in' => ['any(subcategories)' => [$mapper->subcategory('01b11')]]],
+        ['in' => ['any(subcategories)' => [$mapper->subcategory('01d00'), $mapper->subcategory('01d04')]]],
+        ['in' => ['any(subcategories)' => [$mapper->subcategory('01z03')]]],
+        ['range' => ['posted_at' => ['gt' => 1791889200]]],
+    ]]];
+    Http::assertSentCount(2);
+    Http::assertSent(fn (Request $request): bool => $request['query'] === $expectedQuery && $request['limit'] === 51);
+    Http::assertSent(fn (Request $request): bool => $request['query'] === $expectedQuery
+        && $request['limit'] === 0 && $request['options']['cutoff'] === 0);
+});
+
+test('subcategory groups have deterministic facet and alternative order without duplicates', function () {
+    $criteria = new SpotSearchCriteria(subcategories: ['01z03', '01a15', '01d04', '01a09', '01d00', '01a15']);
+
+    expect($criteria->subcategoryGroups())->toBe([
+        ['01a09', '01a15'],
+        ['01d00', '01d04'],
+        ['01z03'],
+    ]);
+});
