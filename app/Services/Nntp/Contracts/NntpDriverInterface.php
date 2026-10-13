@@ -24,7 +24,7 @@ interface NntpDriverInterface
      * Without a callback, this retains the legacy headers-or-null return value.
      * Streaming callbacks receive a typed result so callers can distinguish a
      * missing article from a timeout after one fresh-connection retry. Fatal NNTP
-     * failures throw and do not invoke the callback for pending articles.
+     * failures throw in both modes and do not invoke the callback for pending articles.
      */
     public function headBatch(array $articles, bool $showProgress = true, ?callable $onArticle = null): array;
 

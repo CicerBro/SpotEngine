@@ -20,7 +20,7 @@ class NntpService
      * Create an NNTP driver instance.
      *
      * @param  int|null  $connections  Override the configured connection count (parallel driver only).
-     * @param  string|null  $driver  Override the configured driver ('parallel' or 'single').
+     * @param  string|null  $driver  Override the configured driver ('parallel', 'single', or 'pipelined').
      *                               Defaults to the 'nntp.driver' config value.
      * @return ($driver is 'single' ? SingleNntpDriver : NntpDriverInterface)
      */
@@ -32,6 +32,7 @@ class NntpService
         return match ($driverType) {
             'parallel' => new ParallelNntpDriver($this->config, $numConnections),
             'single' => SingleNntpDriver::fromEndpoint($this->connectionConfig->primary),
+            'pipelined' => PipelinedNntpDriver::fromEndpoint($this->connectionConfig->primary, $this->connectionConfig->pipelineDepth),
             default => throw new \InvalidArgumentException("Unknown NNTP driver: {$driverType}"),
         };
     }

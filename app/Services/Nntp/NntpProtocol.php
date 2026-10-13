@@ -12,6 +12,8 @@ final class NntpProtocol
 
     private const int MAX_STATUS_CONTINUATIONS = 32;
 
+    private const int MAX_COMPRESSED_FRAME_CANDIDATES = 32;
+
     private string $readBuffer = '';
 
     public function __construct(
@@ -152,21 +154,32 @@ final class NntpProtocol
         $wireData = $this->readBuffer;
         $this->readBuffer = '';
         $foundTerminator = false;
+        $searchOffset = 0;
+        $frameCandidates = 0;
         $maxBytes ??= self::limit('nntp_response_bytes', 67_108_864);
 
         while (true) {
+            while (($terminatorPosition = strpos($wireData, ".\r\n", $searchOffset)) !== false) {
+                if (++$frameCandidates > self::MAX_COMPRESSED_FRAME_CANDIDATES || $terminatorPosition + 3 > $maxBytes) {
+                    $this->exceededLimit('compressed response');
+                }
+                $foundTerminator = true;
+                $decompressed = @gzuncompress(substr($wireData, 0, $terminatorPosition), $maxBytes);
+
+                if ($decompressed !== false) {
+                    $this->readBuffer = substr($wireData, $terminatorPosition + 3);
+
+                    return self::splitDecompressedResponse($decompressed);
+                }
+
+                $searchOffset = $terminatorPosition + 1;
+            }
+
             if (strlen($wireData) > $maxBytes) {
                 $this->exceededLimit('compressed response');
             }
-            if (str_ends_with($wireData, ".\r\n")) {
-                $foundTerminator = true;
-                $decompressed = @gzuncompress(substr($wireData, 0, -3), $maxBytes);
 
-                if ($decompressed !== false) {
-                    return self::splitDecompressedResponse($decompressed);
-                }
-            }
-
+            $searchOffset = max($searchOffset, strlen($wireData) - 2);
             $chunk = $this->stream->read(min($this->readChunkSize, $maxBytes - strlen($wireData) + 1));
 
             if ($chunk === false || $chunk === '') {
@@ -187,9 +200,6 @@ final class NntpProtocol
                 throw new NntpException('NNTP connection closed during compressed response', operation: 'XOVER');
             }
 
-            if (strlen($chunk) > $maxBytes - strlen($wireData)) {
-                $this->exceededLimit('compressed response');
-            }
             $wireData .= $chunk;
         }
     }

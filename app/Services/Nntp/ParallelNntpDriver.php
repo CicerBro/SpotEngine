@@ -24,6 +24,8 @@ class ParallelNntpDriver implements NntpDriverInterface
 
     private const int RECONNECT_TIMEOUT_SECONDS = 1;
 
+    private const int MAX_HANDSHAKE_LINE_BYTES = 4096;
+
     /**
      * Headers consumed by SpotParser. All other headers are silently discarded
      * during HEAD parsing — this eliminates iconv calls for Subject and other
@@ -318,7 +320,7 @@ class ParallelNntpDriver implements NntpDriverInterface
             $socketIdToIdx[(int) $socket] = $idx;
         }
 
-        $record = function (int|string $articleId, HeadBatchResult $result) use (&$completed, &$results, $onArticle): void {
+        $record = function (int|string $articleId, HeadBatchResult $result) use (&$completed, &$results, &$deadlines, $onArticle): void {
             $key = $this->headRetryKey($articleId);
 
             if (isset($completed[$key])) {
@@ -328,7 +330,13 @@ class ParallelNntpDriver implements NntpDriverInterface
             $completed[$key] = true;
 
             if ($onArticle !== null) {
-                $onArticle($articleId, $result);
+                $callbackStartedAt = microtime(true);
+
+                try {
+                    $onArticle($articleId, $result);
+                } finally {
+                    $this->excludeHeadCallbackDuration($deadlines, microtime(true) - $callbackStartedAt);
+                }
 
                 return;
             }
@@ -375,13 +383,13 @@ class ParallelNntpDriver implements NntpDriverInterface
             $markDone();
         };
 
-        foreach ($this->sockets as $idx => $socket) {
-            if (! $this->dispatchNextHead($idx, $socket, $pending, $states, $deadlines, $buffers, $queue)) {
-                break;
-            }
-        }
-
         try {
+            foreach ($this->sockets as $idx => $socket) {
+                if (! $this->dispatchNextHead($idx, $socket, $pending, $states, $deadlines, $buffers, $queue)) {
+                    break;
+                }
+            }
+
             while ($pending !== [] || ! $queue->isEmpty() || $reconnectsNeeded > 0) {
                 if ($this->quitting) {
                     break;
@@ -496,21 +504,14 @@ class ParallelNntpDriver implements NntpDriverInterface
                         $buffers[$idx] = substr($buffers[$idx], $newlinePos + 1);
 
                         if ($states[$idx]['status'] === 'wait_response') {
-                            if (str_starts_with($line, '221')) {
+                            if (preg_match('/^221(?:\s|$)/', $line) === 1) {
                                 $states[$idx]['status'] = 'reading_headers';
 
                                 continue;
                             }
 
-                            if (preg_match('/^430(?:\s|$)/', $line) === 1) {
-                                if (! $complete($idx, $socket, HeadBatchResult::missing())) {
-                                    break;
-                                }
-
-                                continue;
-                            }
-
-                            if ($onArticle === null) {
+                            if (preg_match('/^430(?:\s|$)/', $line) === 1
+                                || (is_int($pending[$idx]) && preg_match('/^423(?:\s|$)/', $line) === 1)) {
                                 if (! $complete($idx, $socket, HeadBatchResult::missing())) {
                                     break;
                                 }
@@ -535,6 +536,10 @@ class ParallelNntpDriver implements NntpDriverInterface
                     }
                 }
             }
+        } catch (\Throwable $exception) {
+            $this->detach();
+
+            throw $exception;
         } finally {
             $this->sockets = array_values($this->sockets);
 
@@ -802,7 +807,7 @@ class ParallelNntpDriver implements NntpDriverInterface
 
             if ($socket !== false) {
                 stream_set_blocking($socket, false);
-                $pending[$i] = ['socket' => $socket, 'state' => 'connecting'];
+                $pending[$i] = ['socket' => $socket, 'state' => 'connecting', 'buffer' => ''];
             }
         }
 
@@ -872,9 +877,10 @@ class ParallelNntpDriver implements NntpDriverInterface
                     continue;
                 }
 
-                $line = @fgets($socket, 4096);
+                $remainingBytes = self::MAX_HANDSHAKE_LINE_BYTES - strlen($pending[$idx]['buffer']);
+                $chunk = @fgets($socket, $remainingBytes + 1);
 
-                if ($line === false || $line === '') {
+                if ($chunk === false || $chunk === '') {
                     if (feof($socket)) {
                         @fclose($socket);
                         unset($pending[$idx]);
@@ -883,7 +889,19 @@ class ParallelNntpDriver implements NntpDriverInterface
                     continue;
                 }
 
-                $line = trim($line);
+                $pending[$idx]['buffer'] .= $chunk;
+
+                if (! str_ends_with($pending[$idx]['buffer'], "\n")) {
+                    if (strlen($pending[$idx]['buffer']) >= self::MAX_HANDSHAKE_LINE_BYTES) {
+                        @fclose($socket);
+                        unset($pending[$idx]);
+                    }
+
+                    continue;
+                }
+
+                $line = rtrim($pending[$idx]['buffer'], "\r\n");
+                $pending[$idx]['buffer'] = '';
 
                 if ($state === 'wait_greeting') {
                     if (! str_starts_with($line, '200') && ! str_starts_with($line, '201')) {
@@ -1014,6 +1032,19 @@ class ParallelNntpDriver implements NntpDriverInterface
     private function headRetryKey(int|string $articleNum): string
     {
         return is_int($articleNum) ? "int:$articleNum" : "string:$articleNum";
+    }
+
+    /**
+     * Application work prevents reads on every socket and must not count toward
+     * their absolute network deadlines. Partial response bytes never extend them.
+     *
+     * @param  array<int, float>  $deadlines
+     */
+    private function excludeHeadCallbackDuration(array &$deadlines, float $duration): void
+    {
+        foreach ($deadlines as $idx => $deadline) {
+            $deadlines[$idx] = $deadline + $duration;
+        }
     }
 
     /** Close and remove a pooled socket when its index is known. */

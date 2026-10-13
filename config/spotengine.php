@@ -22,6 +22,7 @@ return [
         'password' => env('NNTP_PASSWORD', ''),
         'timeout' => (int) env('NNTP_TIMEOUT', 60),
         'connections' => (int) env('NNTP_CONNECTIONS', 20),
+        'pipeline_depth' => (int) env('NNTP_PIPELINE_DEPTH', 10),
         'verify_peer' => (bool) env('NNTP_TLS_VERIFY', true),
         'groups' => [
             'spots' => env('NNTP_GROUP_SPOTS', 'free.pt'),

@@ -262,8 +262,8 @@ class SingleNntpDriver implements NntpDriverInterface
      * For parallel HEAD throughput across multiple connections, use
      * {@see ParallelNntpDriver::headBatch()}.
      *
-     * Streaming callbacks receive a typed outcome. The legacy return value
-     * continues to use null for every unsuccessful HEAD response.
+     * Missing articles produce a typed outcome or a null return value.
+     * Fatal failures propagate in both modes and close the connection.
      *
      * @param  array<int|string>  $articles
      * @param  callable(int|string, HeadBatchResult): void|null  $onArticle
@@ -279,45 +279,34 @@ class SingleNntpDriver implements NntpDriverInterface
             return $results;
         }
 
-        $reportProgress = function () use (&$done, $total, $showProgress): void {
-            if ($showProgress && ($done % 50 === 0 || $done === $total)) {
-                $percentage = (int) round(100 * $done / $total);
-                echo "\r  Progress: {$done}/{$total} ({$percentage}%)";
-                flush();
-            }
-        };
-
-        $reportProgress();
+        $this->reportHeadProgress($done, $total, $showProgress);
 
         try {
             foreach ($articles as $id) {
                 try {
-                    $headers = $this->head($id);
+                    $result = HeadBatchResult::success($this->head($id));
                 } catch (NntpException $exception) {
-                    if ($onArticle !== null) {
-                        if ($exception->responseCode !== ResponseCode::NoSuchArticleId->value) {
-                            throw $exception;
-                        }
-
-                        $onArticle($id, HeadBatchResult::missing());
-                        $done++;
-                        $reportProgress();
-
-                        continue;
+                    if ($exception->responseCode !== ResponseCode::NoSuchArticleId->value
+                        && ! (\is_int($id) && $exception->responseCode === ResponseCode::NoSuchArticleNumber->value)) {
+                        throw $exception;
                     }
 
-                    $headers = null;
+                    $result = HeadBatchResult::missing();
                 }
 
                 if ($onArticle !== null) {
-                    $onArticle($id, HeadBatchResult::success($headers));
+                    $onArticle($id, $result);
                 } else {
-                    $results[$id] = $headers;
+                    $results[$id] = $result->headers;
                 }
 
                 $done++;
-                $reportProgress();
+                $this->reportHeadProgress($done, $total, $showProgress);
             }
+        } catch (\Throwable $exception) {
+            $this->detach();
+
+            throw $exception;
         } finally {
             if ($showProgress) {
                 echo "\n";
@@ -449,6 +438,35 @@ class SingleNntpDriver implements NntpDriverInterface
         return is_resource($this->socket) && ! feof($this->socket);
     }
 
+    protected function reportHeadProgress(int $done, int $total, bool $showProgress): void
+    {
+        if ($showProgress && ($done % 50 === 0 || $done === $total)) {
+            $percentage = (int) round(100 * $done / $total);
+            echo "\r  Progress: {$done}/{$total} ({$percentage}%)";
+            flush();
+        }
+    }
+
+    protected function getTextResponse(?int $maxBytes = null): array
+    {
+        if ($this->compressionEnabled && $this->lastResponse instanceof NntpResponse &&
+            stripos($this->lastResponse->statusText, 'COMPRESS=GZIP') !== false) {
+            return $this->getCompressedTextResponse($maxBytes);
+        }
+
+        return $this->protocol()->readTextResponse($maxBytes);
+    }
+
+    protected function sendCommand(string $command): void
+    {
+        $this->protocol()->writeCommand($command);
+    }
+
+    protected function readResponse(): NntpResponse
+    {
+        return $this->lastResponse = $this->protocol()->readResponse();
+    }
+
     private function authenticate(): void
     {
         $this->sendCommand("AUTHINFO USER {$this->username}");
@@ -464,30 +482,10 @@ class SingleNntpDriver implements NntpDriverInterface
         }
     }
 
-    private function getTextResponse(?int $maxBytes = null): array
-    {
-        if ($this->compressionEnabled && $this->lastResponse instanceof NntpResponse &&
-            stripos($this->lastResponse->statusText, 'COMPRESS=GZIP') !== false) {
-            return $this->getCompressedTextResponse($maxBytes);
-        }
-
-        return $this->protocol()->readTextResponse($maxBytes);
-    }
-
     /** @return array<string> */
     private function getCompressedTextResponse(?int $maxBytes = null): array
     {
         return $this->protocol()->readCompressedTextResponse($maxBytes);
-    }
-
-    private function sendCommand(string $command): void
-    {
-        $this->protocol()->writeCommand($command);
-    }
-
-    private function readResponse(): NntpResponse
-    {
-        return $this->lastResponse = $this->protocol()->readResponse();
     }
 
     private function protocol(): NntpProtocol

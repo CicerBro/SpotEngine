@@ -35,7 +35,7 @@ class SpotRetrieverService
     /**
      * @param  callable(int $batchStart, int $batchEnd, int $processed, int $parsed, int $inserted): void  $onBatchComplete
      */
-    public function retrieve(bool $backfill = false, bool $resetBackfill = false, bool $initialScan = false, ?int $limit = null, ?int $connections = null, ?callable $onBatchComplete = null): array
+    public function retrieve(bool $backfill = false, bool $resetBackfill = false, bool $initialScan = false, ?int $limit = null, ?int $connections = null, ?callable $onBatchComplete = null, ?string $driver = null): array
     {
         $this->initialScan = $initialScan;
 
@@ -45,13 +45,13 @@ class SpotRetrieverService
 
         log_debug('Starting spot retrieval', ['newsgroup' => $newsgroup, 'numConns' => $numConns, 'limit' => $limit, 'backfill' => $backfill, 'initialScan' => $initialScan]);
 
-        // Regular incremental scans use a single connection — only a few hundred
-        // articles at most, so parallel connections add overhead with no benefit.
-        // Initial scans use the parallel driver so XOVER can fan out across many
-        // connections for fast bulk indexing.
-        $this->nntp = $initialScan
-            ? $this->nntpService->makeDriver($numConns)
-            : $this->nntpService->makeDriver(driver: 'single');
+        if ($driver !== null) {
+            $this->nntp = $this->nntpService->makeDriver($numConns, driver: $driver);
+        } else {
+            $this->nntp = $initialScan || $backfill
+                ? $this->nntpService->makeDriver($numConns)
+                : $this->nntpService->makeDriver(driver: ($config['driver'] ?? 'parallel') === 'pipelined' ? 'pipelined' : 'single');
+        }
         $this->nntp->connect();
 
         echo "Selecting newsgroup {$newsgroup}... ";

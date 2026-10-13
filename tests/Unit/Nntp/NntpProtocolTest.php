@@ -119,6 +119,32 @@ test('decompresses framed overview responses', function () {
     ]);
 });
 
+test('preserves the following reply when compressed responses arrive together', function () {
+    $stream = new ProtocolTranscriptStream(
+        gzcompress("first\r\n") . ".\r\n222 body follows\r\n" . str_repeat('x', 300) . "\r\n.\r\n",
+    );
+    $protocol = new NntpProtocol($stream);
+
+    expect($protocol->readCompressedTextResponse(64))->toBe(['first']);
+    expect($protocol->readResponse()->code)->toBe(ResponseCode::BodyFollows);
+    expect($protocol->readBodyResponse())->toBe(str_repeat('x', 300));
+});
+
+test('does not mistake terminator bytes inside compressed data for the end of a reply', function () {
+    $compressed = gzcompress("first .\r\nsecond\r\n", 0);
+    $protocol = new NntpProtocol(new ProtocolTranscriptStream($compressed . ".\r\n", readChunkSize: 3));
+
+    expect($protocol->readCompressedTextResponse())->toBe(['first .', 'second']);
+});
+
+test('bounds decompression attempts for invalid compressed framing', function () {
+    $stream = new ProtocolTranscriptStream(str_repeat(".\r\n", 33));
+
+    expect(fn () => (new NntpProtocol($stream))->readCompressedTextResponse())
+        ->toThrow(NntpException::class, 'payload limit');
+    expect($stream->closed)->toBeTrue();
+});
+
 test('rejects overlong unterminated lines and closes the connection', function () {
     config()->set('spotengine.payload_limits.nntp_line_bytes', 8);
     $stream = new ProtocolTranscriptStream(str_repeat('x', 100));

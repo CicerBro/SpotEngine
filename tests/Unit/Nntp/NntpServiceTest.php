@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Services\Nntp\NntpConnectionConfig;
 use App\Services\Nntp\NntpService;
 use App\Services\Nntp\ParallelNntpDriver;
+use App\Services\Nntp\PipelinedNntpDriver;
 use App\Services\Nntp\SingleNntpDriver;
 
 function nntpConfig(string $driver = 'parallel'): array
@@ -39,6 +40,26 @@ test('makeDriver throws on unknown driver', function () {
 
     $service->makeDriver();
 })->throws(InvalidArgumentException::class, 'Unknown NNTP driver: bogus');
+
+test('constructs the pipelined driver from configuration or an explicit override', function () {
+    $config = nntpConfig('pipelined');
+    $config['pipeline_depth'] = 7;
+    $service = new NntpService($config);
+    $driver = $service->makeDriver();
+
+    expect($driver)->toBeInstanceOf(PipelinedNntpDriver::class)
+        ->and($driver->getConnectionCount())->toBe(1);
+    expect((new ReflectionProperty($driver, 'pipelineDepth'))->getValue($driver))->toBe(7);
+    expect((new NntpService(nntpConfig()))->makeDriver(driver: 'pipelined'))->toBeInstanceOf(PipelinedNntpDriver::class);
+    expect(PipelinedNntpDriver::fromConfig($config))->toBeInstanceOf(PipelinedNntpDriver::class);
+});
+
+test('bounds the configured pipeline depth', function (int $depth, int $expected) {
+    $config = nntpConfig('pipelined');
+    $config['pipeline_depth'] = $depth;
+
+    expect(NntpConnectionConfig::fromArray($config)->pipelineDepth)->toBe($expected);
+})->with([[0, 1], [500, 200]]);
 
 test('makeDriver respects connection count override', function () {
     $service = new NntpService(nntpConfig());

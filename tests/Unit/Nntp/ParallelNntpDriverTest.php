@@ -11,7 +11,7 @@ use App\Services\Nntp\ParallelNntpDriver;
  * @param  list<string|null>  $transcripts
  * @return array{0: ParallelNntpDriver, 1: list<mixed>}
  */
-function connectedParallelDriver(array $transcripts, float $headDeadlineSeconds = 1.0): array
+function connectedParallelDriver(array $transcripts, float $headDeadlineSeconds = 1.0, int $connections = 1): array
 {
     $servers = [];
     $nextTranscript = 0;
@@ -22,7 +22,7 @@ function connectedParallelDriver(array $transcripts, float $headDeadlineSeconds 
             'ssl' => false,
             'timeout' => 1,
         ],
-        1,
+        $connections,
         connector: function () use (&$servers, &$nextTranscript, $transcripts): mixed {
             $transcript = $transcripts[$nextTranscript] ?? null;
             $nextTranscript++;
@@ -295,3 +295,182 @@ test('reports failed reconnects after oversized greetings close their sockets', 
         closeParallelTestDriver($driver, $servers);
     }
 });
+
+test('aborts legacy HEAD batches on fatal server responses and closes unread sockets', function () {
+    [$driver, $servers] = connectedParallelDriver([
+        "200 ready\r\n400 service unavailable\r\n",
+        "200 ready\r\n221 headers follow\r\nX-XML: pending",
+    ], connections: 2);
+
+    try {
+        expect(fn () => $driver->headBatch(['failed@test', 'pending@test'], showProgress: false))
+            ->toThrow(NntpException::class, 'HEAD failed: 400');
+        expect($driver->getConnectionCount())->toBe(0);
+    } finally {
+        closeParallelTestDriver($driver, $servers);
+    }
+});
+
+test('returns numeric missing articles consistently in both HEAD APIs', function (bool $useCallback) {
+    [$driver, $servers] = connectedParallelDriver(["200 ready\r\n423 no such article number\r\n"]);
+    $results = [];
+
+    try {
+        $legacyResults = $driver->headBatch([123], showProgress: false, onArticle: $useCallback
+            ? function (int|string $id, HeadBatchResult $result) use (&$results): void {
+                $results[$id] = $result->outcome;
+            }
+            : null);
+
+        expect($legacyResults)->toBe($useCallback ? [] : [123 => null]);
+        expect($results)->toBe($useCallback ? [123 => HeadBatchOutcome::Missing] : []);
+        expect($driver->getConnectionCount())->toBe(1);
+    } finally {
+        closeParallelTestDriver($driver, $servers);
+    }
+})->with([false, true]);
+
+test('preserves outstanding HEAD network deadlines while an article callback blocks', function () {
+    [$driver, $servers] = connectedParallelDriver([
+        "200 ready\r\n221 headers follow\r\nX-XML: first\r\n.\r\n",
+        "200 ready\r\n",
+    ], headDeadlineSeconds: 0.01, connections: 2);
+    $results = [];
+
+    try {
+        $driver->headBatch(['first@test', 'second@test'], showProgress: false, onArticle: function (int|string $id, HeadBatchResult $result) use (&$results, $servers): void {
+            $results[$id] = $result->headers;
+
+            if ($id === 'first@test') {
+                fwrite($servers[1], "221 headers follow\r\nX-XML: second\r\n.\r\n");
+                usleep(40_000);
+            }
+        });
+
+        expect($results)->toBe([
+            'first@test' => ['x-xml' => 'first'],
+            'second@test' => ['x-xml' => 'second'],
+        ]);
+        expect($driver->getConnectionCount())->toBe(2);
+    } finally {
+        closeParallelTestDriver($driver, $servers);
+    }
+});
+
+test('rejects numeric missing status for a message ID request', function () {
+    [$driver, $servers] = connectedParallelDriver(["200 ready\r\n423 no such article number\r\n"]);
+
+    try {
+        expect(fn () => $driver->headBatch(['message@test'], showProgress: false))
+            ->toThrow(NntpException::class, 'HEAD failed: 423');
+        expect($driver->getConnectionCount())->toBe(0);
+    } finally {
+        closeParallelTestDriver($driver, $servers);
+    }
+});
+
+test('closes pending HEAD connections when an article callback throws', function () {
+    [$driver, $servers] = connectedParallelDriver([
+        "200 ready\r\n221 headers follow\r\nX-XML: first\r\n.\r\n",
+        "200 ready\r\n221 headers follow\r\nX-XML: pending",
+    ], connections: 2);
+
+    try {
+        expect(fn () => $driver->headBatch(['first@test', 'pending@test'], showProgress: false, onArticle: function (): void {
+            throw new RuntimeException('callback failed');
+        }))->toThrow(RuntimeException::class, 'callback failed');
+        expect($driver->getConnectionCount())->toBe(0);
+    } finally {
+        closeParallelTestDriver($driver, $servers);
+    }
+});
+
+test('frames fragmented asynchronous greeting and authentication replies within bounds', function (bool $authenticate, ?string $oversizedStage) {
+    if (! function_exists('pcntl_fork')) {
+        $this->markTestSkipped('pcntl is required for the NNTP handshake test server.');
+    }
+
+    $listener = stream_socket_server('tcp://127.0.0.1:0', $errorCode, $errorMessage);
+    $address = stream_socket_get_name($listener, false);
+    $port = (int) substr(strrchr($address, ':'), 1);
+    $pid = pcntl_fork();
+
+    if ($pid === -1) {
+        fclose($listener);
+
+        throw new RuntimeException('Cannot start the NNTP test server');
+    }
+
+    if ($pid === 0) {
+        $socket = stream_socket_accept($listener, 2);
+
+        if ($socket === false) {
+            exit(1);
+        }
+
+        stream_set_timeout($socket, 2);
+        $respond = function (string $prefix, string $suffix, string $stage) use ($socket, $listener, $oversizedStage): void {
+            fwrite($socket, $prefix);
+            usleep(20_000);
+            fwrite($socket, $oversizedStage === $stage ? str_repeat('x', 4096) : $suffix);
+
+            if ($oversizedStage === $stage) {
+                fclose($socket);
+                fclose($listener);
+                exit(0);
+            }
+        };
+        $respond('20', "0 ready\r\n", 'greeting');
+
+        if ($authenticate) {
+            if (fgets($socket) !== "AUTHINFO USER user\r\n") {
+                exit(2);
+            }
+
+            $respond('38', "1 password required\r\n", 'user');
+
+            if (fgets($socket) !== "AUTHINFO PASS pass\r\n") {
+                exit(3);
+            }
+
+            $respond('28', "1 authenticated\r\n", 'pass');
+        }
+
+        fclose($socket);
+        fclose($listener);
+        exit(0);
+    }
+
+    fclose($listener);
+    $driver = new ParallelNntpDriver([
+        'host' => '127.0.0.1',
+        'port' => $port,
+        'ssl' => false,
+        'timeout' => 1,
+        'username' => $authenticate ? 'user' : '',
+        'password' => $authenticate ? 'pass' : '',
+    ], 1);
+
+    try {
+        if ($oversizedStage === null) {
+            $driver->connect(showProgress: false);
+
+            expect($driver->getConnectionCount())->toBe(1);
+        } else {
+            expect(fn () => $driver->connect(showProgress: false))
+                ->toThrow(NntpException::class, 'Failed to establish any NNTP connections');
+            expect($driver->getConnectionCount())->toBe(0);
+        }
+    } finally {
+        $driver->detach();
+        pcntl_waitpid($pid, $status);
+    }
+
+    expect(pcntl_wexitstatus($status))->toBe(0);
+})->with([
+    'greeting' => [false, null],
+    'authentication' => [true, null],
+    'oversized greeting' => [false, 'greeting'],
+    'oversized username reply' => [true, 'user'],
+    'oversized password reply' => [true, 'pass'],
+]);

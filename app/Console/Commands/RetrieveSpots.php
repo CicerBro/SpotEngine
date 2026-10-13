@@ -19,7 +19,8 @@ use Symfony\Component\Console\Output\OutputInterface;
                             {--backfill : Fetch older spots below current position (run repeatedly until complete)}
                             {--reset-backfill : Reset backfill progress and start over}
                             {--limit= : Maximum number of articles per run}
-                            {--connections= : Parallel NNTP connections — only used with --initial-scan (default from config)}
+                            {--connections= : Parallel NNTP connections (default from config)}
+                            {--driver= : NNTP driver for this run (single, parallel, pipelined)}
                             {--clear-lock : Release any stuck isolation or scheduler overlap lock for this command}')]
 class RetrieveSpots extends Command implements Isolatable
 {
@@ -45,6 +46,7 @@ class RetrieveSpots extends Command implements Isolatable
         $connections = $this->option('connections') !== null && $this->option('connections') !== ''
             ? (int) $this->option('connections')
             : (int) config('spotengine.nntp.connections');
+        $driver = $this->option('driver') !== null && $this->option('driver') !== '' ? (string) $this->option('driver') : null;
 
         try {
             $result = $service->retrieve(
@@ -56,6 +58,7 @@ class RetrieveSpots extends Command implements Isolatable
                 onBatchComplete: function (int $batchStart, int $batchEnd, int $processed, int $parsed, int $inserted): void {
                     $this->line("Batch {$batchStart}-{$batchEnd}: {$processed} processed, {$parsed} parsed, {$inserted} inserted");
                 },
+                driver: $driver,
             );
 
             if ($result['processed'] === 0) {
@@ -119,6 +122,13 @@ class RetrieveSpots extends Command implements Isolatable
      */
     private function validateAndConfirmSettings(): ?int
     {
+        $driver = $this->option('driver');
+        if ($driver !== null && $driver !== '' && ! in_array($driver, ['single', 'parallel', 'pipelined'], true)) {
+            $this->error('Unknown NNTP driver. Choose single, parallel, or pipelined.');
+
+            return self::FAILURE;
+        }
+
         $nntpConfig = config('spotengine.nntp');
         if (empty($nntpConfig['host']) || ! \is_string($nntpConfig['host']) || trim($nntpConfig['host']) === '') {
             $this->error('NNTP is not configured. Set NNTP_HOST in your .env (and NNTP_USERNAME/NNTP_PASSWORD if your server requires auth).');

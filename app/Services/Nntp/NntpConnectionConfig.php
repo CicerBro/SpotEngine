@@ -15,6 +15,7 @@ final readonly class NntpConnectionConfig
         public string $driver = 'parallel',
         public int $connections = 20,
         public array $groups = [],
+        public int $pipelineDepth = 10,
     ) {}
 
     /** @param array<string, mixed> $config */
@@ -33,6 +34,7 @@ final readonly class NntpConnectionConfig
                 static fn (mixed $group): string => (string) $group,
                 \is_array($config['groups'] ?? null) ? $config['groups'] : [],
             ),
+            pipelineDepth: max(1, min((int) ($config['pipeline_depth'] ?? 10), 200)),
         );
     }
 }

@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Console\Commands\RetrieveSpots;
+use App\Services\AsyncSpotRetrieverService;
 use Illuminate\Console\CacheCommandMutex;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Support\Facades\Config;
@@ -58,6 +59,36 @@ test('command accepts backfill option and still validates config', function () {
     $this->artisan('spot:retrieve', ['--backfill' => true, '--limit' => 10000])
         ->assertFailed()
         ->expectsOutputToContain('NNTP is not configured');
+});
+
+test('command passes the driver for this run without changing configuration', function (?string $driver) {
+    Config::set('spotengine.nntp.driver', 'parallel');
+    $service = Mockery::mock(AsyncSpotRetrieverService::class);
+    $service->shouldReceive('retrieve')->once()->withArgs(
+        fn (bool $backfill, bool $resetBackfill, bool $initialScan, ?int $limit, ?int $connections, ?callable $onBatchComplete, ?string $selectedDriver): bool => ! $backfill && ! $resetBackfill && ! $initialScan
+            && $limit === 10 && $connections === 3 && is_callable($onBatchComplete) && $selectedDriver === $driver,
+    )->andReturn(['processed' => 0, 'inserted' => 0, 'last_article' => 100]);
+    $this->app->instance(AsyncSpotRetrieverService::class, $service);
+    $options = ['--limit' => 10, '--connections' => 3];
+    if ($driver !== null) {
+        $options['--driver'] = $driver;
+    }
+
+    $this->artisan('spot:retrieve', $options)
+        ->assertSuccessful()
+        ->expectsOutputToContain('Already up to date.');
+
+    expect(config('spotengine.nntp.driver'))->toBe('parallel');
+})->with([null, 'single', 'parallel', 'pipelined']);
+
+test('command rejects an unknown driver before retrieving', function () {
+    $service = Mockery::mock(AsyncSpotRetrieverService::class);
+    $service->shouldNotReceive('retrieve');
+    $this->app->instance(AsyncSpotRetrieverService::class, $service);
+
+    $this->artisan('spot:retrieve', ['--driver' => 'unknown'])
+        ->assertFailed()
+        ->expectsOutputToContain('Unknown NNTP driver. Choose single, parallel, or pipelined.');
 });
 
 test('clear-lock releases stuck command isolation lock', function () {

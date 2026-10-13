@@ -38,15 +38,12 @@ class AsyncSpotRetrieverService extends SpotRetrieverService
         $totalInserted = 0;
         $highestArticle = $backfill ? 0 : ($startArticle - 1);
 
-        $prevChildPid = null;
-        $prevReadPipe = null;
-
-        /** @var array{batchStart: int, batchEnd: int, processed: int, parsed: int, lastInBatch: int, moderationCommands: list<array<string,mixed>>}|null */
-        $prevBatch = null;
+        /** @var array{pid: int, readPipe: resource, batch: array{batchStart: int, batchEnd: int, processed: int, parsed: int, lastInBatch: int, moderationCommands: list<array<string,mixed>>}}|null $pendingChild */
+        $pendingChild = null;
 
         // Collect the previous child's result, update totals, save state, and report.
-        $commitPrev = function (int $inserted) use (
-            &$prevBatch,
+        /** @param array{batchStart: int, batchEnd: int, processed: int, parsed: int, lastInBatch: int, moderationCommands: list<array<string,mixed>>} $batch */
+        $commitBatch = function (array $batch, int $inserted) use (
             &$totalProcessed,
             &$totalInserted,
             &$highestArticle,
@@ -56,119 +53,154 @@ class AsyncSpotRetrieverService extends SpotRetrieverService
             $onBatchComplete,
         ): void {
             $totalInserted += $inserted;
-            $totalProcessed += $prevBatch['processed'];
-            $highestArticle = max($highestArticle, $prevBatch['lastInBatch']);
+            $totalProcessed += $batch['processed'];
+            $highestArticle = max($highestArticle, $batch['lastInBatch']);
 
             // Moderation is always processed in the parent after the child upsert.
-            $this->processModeration($prevBatch['moderationCommands']);
+            $this->processModeration($batch['moderationCommands']);
 
             if ($onBatchComplete !== null) {
                 $onBatchComplete(
-                    $prevBatch['batchStart'],
-                    $prevBatch['batchEnd'],
-                    $prevBatch['processed'],
-                    $prevBatch['parsed'],
+                    $batch['batchStart'],
+                    $batch['batchEnd'],
+                    $batch['processed'],
+                    $batch['parsed'],
                     $inserted
                 );
             }
 
-            $this->saveState($state, $backfill, $prevBatch['batchStart'], $highestArticle, $groupInfo['first']);
+            $this->saveState($state, $backfill, $batch['batchStart'], $highestArticle, $groupInfo['first']);
         };
 
-        foreach ($batches as [$batchStart, $batchEnd]) {
-            if ($this->shuttingDown) {
-                break;
+        $collectPendingChild = function () use (&$pendingChild, $commitBatch): void {
+            if ($pendingChild === null) {
+                return;
             }
 
-            // Fetch current batch — runs while the previous upsert child is active.
-            [$processed, $spots, $moderationCommands, $lastInBatch] = $this->fetchBatch($batchStart, $batchEnd);
-            $parsed = \count($spots);
+            $child = $pendingChild;
+            $pendingChild = null;
+            $inserted = $this->awaitUpsertChild($child['pid'], $child['readPipe']);
+            $commitBatch($child['batch'], $inserted);
+        };
 
-            // SIGINT may have fired during fetchBatch (async signals). If shutdown was
-            // triggered while headBatch was running, $this->nntp is now null.
-            // Do not fork a new child in that case — just drain the previous one.
-            // @phpstan-ignore if.alwaysFalse
-            if ($this->shuttingDown) {
-                break;
-            }
+        $failure = null;
 
-            // Wait for the previous child before forking a new one.
-            if ($prevChildPid !== null) {
-                $inserted = $this->awaitUpsertChild($prevChildPid, $prevReadPipe);
-                $prevChildPid = null;
-                $prevReadPipe = null;
-                $commitPrev($inserted);
-            }
-
-            // Open a pipe so the child can return the inserted count.
-            [$readPipe, $writePipe] = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
-
-            // Never fork with an active PDO connection. A child reconnect on an
-            // inherited PostgreSQL socket can terminate the parent's session.
-            DB::disconnect();
-            $pid = pcntl_fork();
-
-            if ($pid === -1) {
-                // Fork failed — upsert synchronously and continue.
-                DB::reconnect();
-                fclose($readPipe);
-                fclose($writePipe);
-                $inserted = $this->batchUpsert($spots);
-                $prevBatch = ['batchStart' => $batchStart, 'batchEnd' => $batchEnd, 'processed' => $processed, 'parsed' => $parsed, 'lastInBatch' => $lastInBatch, 'moderationCommands' => $moderationCommands];
-                $commitPrev($inserted);
-
-                continue;
-            }
-
-            if ($pid === 0) {
-                // Child: reset signal handlers so SIGINT/SIGTERM don't call shutdown()
-                // and null out $this->nntp before we can detach().
-                if (\function_exists('pcntl_signal')) {
-                    pcntl_signal(SIGINT, SIG_DFL);
-                    pcntl_signal(SIGTERM, SIG_DFL);
+        try {
+            foreach ($batches as [$batchStart, $batchEnd]) {
+                if ($this->shuttingDown) {
+                    break;
                 }
 
-                // Detach NNTP sockets so our exit does not QUIT the parent's
-                // connections, then reconnect the DB to get a clean connection.
-                fclose($readPipe);
-                $this->nntp->detach();
-                DB::reconnect();
-                try {
-                    $inserted = $this->batchUpsert($spots);
-                    $payload = json_encode(['ok' => true, 'inserted' => $inserted], JSON_THROW_ON_ERROR);
-                    fwrite($writePipe, $payload);
-                    $exitCode = 0;
-                } catch (\Throwable $exception) {
-                    $error = $exception::class . ': ' . $exception->getMessage();
+                // Fetch current batch — runs while the previous upsert child is active.
+                [$processed, $spots, $moderationCommands, $lastInBatch] = $this->fetchBatch($batchStart, $batchEnd);
+                $parsed = \count($spots);
 
-                    if (strlen($error) > 4096) {
-                        $error = substr($error, 0, 4096) . ' [truncated]';
+                // SIGINT may have fired during fetchBatch (async signals). If shutdown was
+                // triggered while headBatch was running, $this->nntp is now null.
+                // Do not fork a new child in that case — just drain the previous one.
+                // @phpstan-ignore if.alwaysFalse
+                if ($this->shuttingDown) {
+                    break;
+                }
+
+                $collectPendingChild();
+
+                if ($this->shuttingDown) {
+                    break;
+                }
+
+                // Open a pipe so the child can return the inserted count.
+                $pipes = stream_socket_pair(STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP);
+
+                if ($pipes === false) {
+                    throw new \RuntimeException('Unable to open the forked spot upsert result pipe.');
+                }
+
+                [$readPipe, $writePipe] = $pipes;
+
+                // Never fork with an active PDO connection. A child reconnect on an
+                // inherited PostgreSQL socket can terminate the parent's session.
+                try {
+                    DB::disconnect();
+                    $pid = pcntl_fork();
+                } catch (\Throwable $exception) {
+                    fclose($readPipe);
+                    fclose($writePipe);
+
+                    throw $exception;
+                }
+
+                if ($pid === -1) {
+                    // Fork failed — upsert synchronously and continue.
+                    fclose($readPipe);
+                    fclose($writePipe);
+                    DB::reconnect();
+                    $inserted = $this->batchUpsert($spots);
+                    $commitBatch(['batchStart' => $batchStart, 'batchEnd' => $batchEnd, 'processed' => $processed, 'parsed' => $parsed, 'lastInBatch' => $lastInBatch, 'moderationCommands' => $moderationCommands], $inserted);
+
+                    continue;
+                }
+
+                if ($pid === 0) {
+                    // Child: reset signal handlers so SIGINT/SIGTERM don't call shutdown()
+                    // and null out $this->nntp before we can detach().
+                    if (\function_exists('pcntl_signal')) {
+                        pcntl_signal(SIGINT, SIG_DFL);
+                        pcntl_signal(SIGTERM, SIG_DFL);
                     }
 
-                    $payload = json_encode([
-                        'ok' => false,
-                        'error' => $error,
-                    ], JSON_THROW_ON_ERROR);
-                    fwrite($writePipe, $payload);
-                    $exitCode = 1;
+                    // Detach NNTP sockets so our exit does not QUIT the parent's
+                    // connections, then reconnect the DB to get a clean connection.
+                    fclose($readPipe);
+                    try {
+                        $this->nntp?->detach();
+                        DB::reconnect();
+                        $inserted = $this->batchUpsert($spots);
+                        $payload = json_encode(['ok' => true, 'inserted' => $inserted], JSON_THROW_ON_ERROR);
+                        fwrite($writePipe, $payload);
+                        $exitCode = 0;
+                    } catch (\Throwable $exception) {
+                        $error = $exception::class . ': ' . $exception->getMessage();
+
+                        if (strlen($error) > 4096) {
+                            $error = substr($error, 0, 4096) . ' [truncated]';
+                        }
+
+                        $payload = json_encode([
+                            'ok' => false,
+                            'error' => $error,
+                        ], JSON_THROW_ON_ERROR);
+                        fwrite($writePipe, $payload);
+                        $exitCode = 1;
+                    }
+
+                    fclose($writePipe);
+                    exit($exitCode);
                 }
 
+                // Parent: track the child and immediately loop to the next fetch.
                 fclose($writePipe);
-                exit($exitCode);
+                $pendingChild = [
+                    'pid' => $pid,
+                    'readPipe' => $readPipe,
+                    'batch' => ['batchStart' => $batchStart, 'batchEnd' => $batchEnd, 'processed' => $processed, 'parsed' => $parsed, 'lastInBatch' => $lastInBatch, 'moderationCommands' => $moderationCommands],
+                ];
+                DB::reconnect();
             }
+        } catch (\Throwable $exception) {
+            $failure = $exception;
 
-            // Parent: track the child and immediately loop to the next fetch.
-            DB::reconnect();
-            fclose($writePipe);
-            $prevChildPid = $pid;
-            $prevReadPipe = $readPipe;
-            $prevBatch = ['batchStart' => $batchStart, 'batchEnd' => $batchEnd, 'processed' => $processed, 'parsed' => $parsed, 'lastInBatch' => $lastInBatch, 'moderationCommands' => $moderationCommands];
-        }
+            throw $exception;
+        } finally {
+            try {
+                $collectPendingChild();
+            } catch (\Throwable $cleanupException) {
+                if ($failure === null) {
+                    throw $cleanupException;
+                }
 
-        // Collect the final child.
-        if ($prevChildPid !== null) {
-            $inserted = $this->awaitUpsertChild($prevChildPid, $prevReadPipe);
-            $commitPrev($inserted);
+                report($cleanupException);
+            }
         }
 
         return ['totalProcessed' => $totalProcessed, 'totalInserted' => $totalInserted, 'highestArticle' => $highestArticle];
@@ -180,9 +212,15 @@ class AsyncSpotRetrieverService extends SpotRetrieverService
         // Drain the pipe before waiting for the child to exit. Error payloads can
         // exceed the socket buffer; waiting first deadlocks when the child blocks
         // in fwrite() while the parent blocks in waitpid().
-        $payload = stream_get_contents($readPipe);
-        fclose($readPipe);
-        $waitedPid = pcntl_waitpid($childPid, $childStatus);
+        try {
+            $payload = stream_get_contents($readPipe);
+        } finally {
+            fclose($readPipe);
+
+            do {
+                $waitedPid = pcntl_waitpid($childPid, $childStatus);
+            } while ($waitedPid === -1 && pcntl_get_last_error() === PCNTL_EINTR);
+        }
 
         $result = null;
 
