@@ -272,28 +272,56 @@ class SingleNntpDriver implements NntpDriverInterface
     public function headBatch(array $articles, bool $showProgress = true, ?callable $onArticle = null): array
     {
         $results = [];
+        $total = \count($articles);
+        $done = 0;
 
-        foreach ($articles as $id) {
-            try {
-                $headers = $this->head($id);
-            } catch (NntpException $exception) {
-                if ($onArticle !== null) {
-                    if ($exception->responseCode !== ResponseCode::NoSuchArticleId->value) {
-                        throw $exception;
+        if ($total === 0) {
+            return $results;
+        }
+
+        $reportProgress = function () use (&$done, $total, $showProgress): void {
+            if ($showProgress && ($done % 50 === 0 || $done === $total)) {
+                $percentage = (int) round(100 * $done / $total);
+                echo "\r  Progress: {$done}/{$total} ({$percentage}%)";
+                flush();
+            }
+        };
+
+        $reportProgress();
+
+        try {
+            foreach ($articles as $id) {
+                try {
+                    $headers = $this->head($id);
+                } catch (NntpException $exception) {
+                    if ($onArticle !== null) {
+                        if ($exception->responseCode !== ResponseCode::NoSuchArticleId->value) {
+                            throw $exception;
+                        }
+
+                        $onArticle($id, HeadBatchResult::missing());
+                        $done++;
+                        $reportProgress();
+
+                        continue;
                     }
 
-                    $onArticle($id, HeadBatchResult::missing());
-
-                    continue;
+                    $headers = null;
                 }
 
-                $headers = null;
-            }
+                if ($onArticle !== null) {
+                    $onArticle($id, HeadBatchResult::success($headers));
+                } else {
+                    $results[$id] = $headers;
+                }
 
-            if ($onArticle !== null) {
-                $onArticle($id, HeadBatchResult::success($headers));
-            } else {
-                $results[$id] = $headers;
+                $done++;
+                $reportProgress();
+            }
+        } finally {
+            if ($showProgress) {
+                echo "\n";
+                flush();
             }
         }
 

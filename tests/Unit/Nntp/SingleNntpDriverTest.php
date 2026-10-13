@@ -40,6 +40,79 @@ test('preserves legacy null results for single-driver retrieval failures', funct
     ]);
 });
 
+test('reports header progress during fetching and preserves results', function (bool $showProgress) {
+    $driver = Mockery::mock(SingleNntpDriver::class, ['localhost', 119, false])->makePartial();
+    $driver->shouldReceive('head')->times(51)->andReturnUsing(function (int $id) use ($showProgress): array {
+        if ($showProgress && $id === 1) {
+            expect(ob_get_contents())->toContain('Progress: 0/51 (0%)');
+        }
+
+        if ($showProgress && $id === 51) {
+            expect(ob_get_contents())->toContain('Progress: 50/51 (98%)');
+        }
+
+        if ($id === 25) {
+            throw new NntpException('No such article', responseCode: 430, operation: 'HEAD');
+        }
+
+        return ['subject' => 'Available'];
+    });
+    ob_start();
+
+    try {
+        $results = $driver->headBatch(range(1, 51), showProgress: $showProgress);
+        $output = ob_get_contents();
+    } finally {
+        ob_end_clean();
+    }
+
+    expect($results)->toHaveCount(51)
+        ->and($results[25])->toBeNull()
+        ->and($results[51])->toBe(['subject' => 'Available']);
+
+    if ($showProgress) {
+        expect($output)->toContain('Progress: 51/51 (100%)')->toEndWith("\n");
+    } else {
+        expect($output)->toBe('');
+    }
+})->with([true, false]);
+
+test('counts missing streamed articles in header progress', function () {
+    $driver = Mockery::mock(SingleNntpDriver::class, ['localhost', 119, false])->makePartial();
+    $driver->shouldReceive('head')->with(1)->once()
+        ->andThrow(new NntpException('No such article', responseCode: 430, operation: 'HEAD'));
+    $outcomes = [];
+    ob_start();
+
+    try {
+        $results = $driver->headBatch([1], onArticle: function (int|string $id, HeadBatchResult $result) use (&$outcomes): void {
+            $outcomes[$id] = $result->outcome;
+        });
+        $output = ob_get_contents();
+    } finally {
+        ob_end_clean();
+    }
+
+    expect($outcomes)->toBe([1 => HeadBatchOutcome::Missing]);
+    expect($results)->toBe([]);
+    expect($output)->toContain('Progress: 1/1 (100%)');
+});
+
+test('produces no header progress when there are no articles', function () {
+    $driver = new SingleNntpDriver('localhost', 119, false);
+    ob_start();
+
+    try {
+        $results = $driver->headBatch([]);
+        $output = ob_get_contents();
+    } finally {
+        ob_end_clean();
+    }
+
+    expect($results)->toBe([]);
+    expect($output)->toBe('');
+});
+
 /** @return array{SingleNntpDriver, resource} */
 function singleDriverTranscript(string $transcript, bool $compression = false): array
 {

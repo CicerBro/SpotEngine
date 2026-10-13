@@ -206,7 +206,7 @@ class SpotRetrieverService
     /**
      * Fetch a batch of articles via XOVER, optionally enriching with HEAD.
      *
-     * In normal mode (not initial-scan), HEAD is fetched in parallel for every
+     * In normal mode (not initial-scan), HEAD is fetched for every
      * article so the spot is fully populated (description, nzb_segments,
      * image_segments, is_verified) before it reaches the database.
      *
@@ -220,6 +220,8 @@ class SpotRetrieverService
         $this->spotBans->beginBatch();
 
         try {
+            echo "Fetching overview for articles {$batchStart}-{$batchEnd}...\n";
+            flush();
             $overview = $this->nntp->xover($batchStart, $batchEnd);
 
             $spots = [];
@@ -271,7 +273,7 @@ class SpotRetrieverService
     }
 
     /**
-     * Fetch HEAD for each article number, parse X-XML, verify signature and
+     * Fetch HEAD for each overview message ID, parse X-XML, verify signature and
      * merge the enriched fields back into the spot array.
      *
      * @param  list<array<string, mixed>>  $spots
@@ -280,14 +282,21 @@ class SpotRetrieverService
      */
     protected function enrichWithHead(array $spots, array $articleNumberToSpotIdx): array
     {
-        $headResults = $this->nntp->headBatch(array_keys($articleNumberToSpotIdx), showProgress: false);
+        echo 'Fetching headers for ' . \count($articleNumberToSpotIdx) . " spots...\n";
+        flush();
+        $messageIds = array_map(
+            fn (int $idx): string => $spots[$idx]['message_id'],
+            array_values($articleNumberToSpotIdx),
+        );
+        $headResults = $this->nntp->headBatch($messageIds, showProgress: true);
 
-        foreach ($headResults as $articleNum => $headers) {
-            if ($headers === null || ! isset($articleNumberToSpotIdx[$articleNum])) {
+        foreach ($articleNumberToSpotIdx as $idx) {
+            $headers = $headResults[$spots[$idx]['message_id']] ?? null;
+
+            if ($headers === null) {
                 continue;
             }
 
-            $idx = $articleNumberToSpotIdx[$articleNum];
             $xmlContent = $headers['x-xml'] ?? '';
             $xmlSignature = $headers['x-xml-signature'] ?? '';
             $userKey = $headers['x-user-key'] ?? '';
